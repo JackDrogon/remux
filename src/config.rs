@@ -1,26 +1,18 @@
-use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{CONFIG_FILE_NAME, HOME_DIR_NAME};
 
-pub const BACKUP_DIR: &str = "backup";
-pub const BACKUP_SOCKET_DIR: &str = "backup-sockets";
-pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../assets/remux.default.conf");
-
-const DEFAULT_LOG_LEVEL: &str = "INFO";
-const SETTINGS_SECTION: &str = "settings";
-const TMUX_BIN: &str = "tmux";
-const VALID_LOG_LEVELS: [&str; 3] = ["info", "debug", "error"];
+pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../assets/config.toml");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
     pub user_path: PathBuf,
-    pub backup_root: PathBuf,
-    pub backup_socket_root: PathBuf,
     pub config_file: PathBuf,
 }
 
@@ -38,22 +30,148 @@ impl ConfigPaths {
         P: AsRef<Path>,
     {
         let user_path = home_dir.as_ref().join(HOME_DIR_NAME);
-        let backup_root = user_path.join(BACKUP_DIR);
-        let backup_socket_root = user_path.join(BACKUP_SOCKET_DIR);
         let config_file = user_path.join(CONFIG_FILE_NAME);
 
         Self {
             user_path,
-            backup_root,
-            backup_socket_root,
             config_file,
         }
     }
 
-    pub fn active_backup_path(&self, socket_name: Option<&str>) -> PathBuf {
+    pub fn backup_root(&self, config: &AppConfig) -> PathBuf {
+        self.user_path.join(&config.backup.dir_name)
+    }
+
+    pub fn backup_socket_root(&self, config: &AppConfig) -> PathBuf {
+        self.user_path.join(&config.backup.socket_dir_name)
+    }
+
+    pub fn active_backup_path(&self, config: &AppConfig, socket_name: Option<&str>) -> PathBuf {
         match socket_dir_name(socket_name) {
-            Some(socket_dir_name) => self.backup_socket_root.join(socket_dir_name),
-            None => self.backup_root.clone(),
+            Some(socket_dir_name) => self.backup_socket_root(config).join(socket_dir_name),
+            None => self.backup_root(config),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeOptions {
+    socket_name: Option<String>,
+}
+
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self { socket_name: None }
+    }
+}
+
+impl RuntimeOptions {
+    pub fn with_socket_name(socket_name: Option<&str>) -> Self {
+        Self {
+            socket_name: socket_name
+                .map(str::trim)
+                .filter(|socket_name| !socket_name.is_empty())
+                .map(ToOwned::to_owned),
+        }
+    }
+
+    pub fn socket_name(&self) -> Option<&str> {
+        self.socket_name.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AppConfig {
+    pub logging: LoggingConfig,
+    pub capture: CaptureConfig,
+    pub tmux: TmuxConfig,
+    pub backup: BackupConfig,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            logging: LoggingConfig::default(),
+            capture: CaptureConfig::default(),
+            tmux: TmuxConfig::default(),
+            backup: BackupConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LoggingConfig {
+    pub file: LogLevel,
+    pub console: LogLevel,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            file: LogLevel::Info,
+            console: LogLevel::Info,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Info,
+    Debug,
+    Error,
+}
+
+impl LogLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CaptureConfig {
+    pub with_escape: bool,
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self { with_escape: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TmuxConfig {
+    pub binary: String,
+}
+
+impl Default for TmuxConfig {
+    fn default() -> Self {
+        Self {
+            binary: "tmux".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackupConfig {
+    pub dir_name: String,
+    pub socket_dir_name: String,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            dir_name: "backup".to_string(),
+            socket_dir_name: "backup-sockets".to_string(),
         }
     }
 }
@@ -61,12 +179,15 @@ impl ConfigPaths {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
     paths: ConfigPaths,
-    socket_name: Option<String>,
-    active_backup_path: PathBuf,
-    tmux_cmd_prefix: Vec<String>,
-    pub content_with_escape: bool,
-    pub log_level_file: String,
-    pub log_level_console: String,
+    app: AppConfig,
+    runtime: RuntimeOptions,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeContext<'a> {
+    paths: &'a ConfigPaths,
+    app: &'a AppConfig,
+    runtime: &'a RuntimeOptions,
 }
 
 impl RuntimeConfig {
@@ -83,48 +204,82 @@ impl RuntimeConfig {
 
     pub fn load_from_paths(paths: ConfigPaths) -> Result<Self, ConfigError> {
         bootstrap_config(&paths)?;
-        let parsed = parse_config_file(&paths.config_file)?;
+        let app = parse_config_file(&paths.config_file)?;
+        ensure_runtime_dirs(&paths, &app)?;
 
         Ok(Self {
-            active_backup_path: paths.active_backup_path(None),
-            tmux_cmd_prefix: vec![TMUX_BIN.to_string()],
             paths,
-            socket_name: None,
-            content_with_escape: parsed.content_with_escape,
-            log_level_file: parsed.log_level_file,
-            log_level_console: parsed.log_level_console,
+            app,
+            runtime: RuntimeOptions::default(),
         })
     }
 
-    pub fn activate_socket(&mut self, socket_name: Option<&str>) {
-        self.socket_name = socket_name
-            .map(str::trim)
-            .filter(|socket_name| !socket_name.is_empty())
-            .map(ToOwned::to_owned);
-
-        self.tmux_cmd_prefix = vec![TMUX_BIN.to_string()];
-        if let Some(socket_name) = self.socket_name.as_deref() {
-            self.tmux_cmd_prefix.push("-L".to_string());
-            self.tmux_cmd_prefix.push(socket_name.to_string());
-        }
-
-        self.active_backup_path = self.paths.active_backup_path(self.socket_name.as_deref());
+    pub fn set_runtime_options(&mut self, runtime: RuntimeOptions) {
+        self.runtime = runtime;
     }
 
     pub fn paths(&self) -> &ConfigPaths {
         &self.paths
     }
 
+    pub fn app(&self) -> &AppConfig {
+        &self.app
+    }
+
+    pub fn runtime_options(&self) -> &RuntimeOptions {
+        &self.runtime
+    }
+
+    pub fn runtime_context(&self) -> RuntimeContext<'_> {
+        RuntimeContext {
+            paths: &self.paths,
+            app: &self.app,
+            runtime: &self.runtime,
+        }
+    }
+
     pub fn socket_name(&self) -> Option<&str> {
-        self.socket_name.as_deref()
+        self.runtime.socket_name()
     }
 
-    pub fn active_backup_path(&self) -> &Path {
-        &self.active_backup_path
+    pub fn active_backup_path(&self) -> PathBuf {
+        self.runtime_context().active_backup_path()
     }
 
-    pub fn tmux_cmd_prefix(&self) -> &[String] {
-        &self.tmux_cmd_prefix
+    pub fn tmux_command_prefix(&self) -> Vec<String> {
+        self.runtime_context().tmux_command_prefix()
+    }
+
+    pub fn content_with_escape(&self) -> bool {
+        self.app.capture.with_escape
+    }
+
+    pub fn log_level_file(&self) -> &'static str {
+        self.app.logging.file.as_str()
+    }
+
+    pub fn log_level_console(&self) -> &'static str {
+        self.app.logging.console.as_str()
+    }
+}
+
+impl RuntimeContext<'_> {
+    pub fn socket_name(&self) -> Option<&str> {
+        self.runtime.socket_name()
+    }
+
+    pub fn active_backup_path(&self) -> PathBuf {
+        self.paths
+            .active_backup_path(self.app, self.runtime.socket_name())
+    }
+
+    pub fn tmux_command_prefix(&self) -> Vec<String> {
+        let mut prefix = vec![self.app.tmux.binary.clone()];
+        if let Some(socket_name) = self.socket_name() {
+            prefix.push("-L".to_string());
+            prefix.push(socket_name.to_string());
+        }
+        prefix
     }
 }
 
@@ -139,27 +294,18 @@ pub enum ConfigError {
         path: PathBuf,
         source: io::Error,
     },
+    ParseToml {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+    InvalidTmuxBinary,
+    InvalidBackupDirName {
+        field: &'static str,
+        value: String,
+    },
     WriteFile {
         path: PathBuf,
         source: io::Error,
-    },
-    MissingSection {
-        path: PathBuf,
-        section: &'static str,
-    },
-    MissingKey {
-        path: PathBuf,
-        key: &'static str,
-    },
-    InvalidBoolean {
-        path: PathBuf,
-        key: &'static str,
-        value: String,
-    },
-    InvalidLine {
-        path: PathBuf,
-        line_number: usize,
-        line: String,
     },
 }
 
@@ -173,31 +319,16 @@ impl fmt::Display for ConfigError {
             Self::ReadFile { path, source } => {
                 write!(f, "failed to read {}: {source}", path.display())
             }
+            Self::ParseToml { path, source } => {
+                write!(f, "failed to parse config {}: {source}", path.display())
+            }
+            Self::InvalidTmuxBinary => write!(f, "tmux.binary must not be empty"),
+            Self::InvalidBackupDirName { field, value } => {
+                write!(f, "backup.{field} must not be empty: {value:?}")
+            }
             Self::WriteFile { path, source } => {
                 write!(f, "failed to write {}: {source}", path.display())
             }
-            Self::MissingSection { path, section } => write!(
-                f,
-                "config {} is missing required section [{section}]",
-                path.display()
-            ),
-            Self::MissingKey { path, key } => {
-                write!(f, "config {} is missing required key {key}", path.display())
-            }
-            Self::InvalidBoolean { path, key, value } => write!(
-                f,
-                "config {} has invalid boolean for {key}: {value}",
-                path.display()
-            ),
-            Self::InvalidLine {
-                path,
-                line_number,
-                line,
-            } => write!(
-                f,
-                "config {} has invalid line {line_number}: {line}",
-                path.display()
-            ),
         }
     }
 }
@@ -226,8 +357,8 @@ fn bootstrap_config(paths: &ConfigPaths) -> Result<(), ConfigError> {
         return Ok(());
     }
 
-    fs::create_dir_all(&paths.backup_root).map_err(|source| ConfigError::CreateDir {
-        path: paths.backup_root.clone(),
+    fs::create_dir_all(&paths.user_path).map_err(|source| ConfigError::CreateDir {
+        path: paths.user_path.clone(),
         source,
     })?;
     fs::write(&paths.config_file, DEFAULT_CONFIG_TEMPLATE).map_err(|source| {
@@ -240,119 +371,45 @@ fn bootstrap_config(paths: &ConfigPaths) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn parse_config_file(path: &Path) -> Result<ParsedSettings, ConfigError> {
+fn parse_config_file(path: &Path) -> Result<AppConfig, ConfigError> {
     let content = fs::read_to_string(path).map_err(|source| ConfigError::ReadFile {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut current_section: Option<&str> = None;
-    let mut saw_settings_section = false;
-    let mut settings = HashMap::new();
+    let config: AppConfig = toml::from_str(&content).map_err(|source| ConfigError::ParseToml {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    validate_config(&config)?;
+    Ok(config)
+}
 
-    for (index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
-            continue;
-        }
-
-        if let Some(section_name) = line
-            .strip_prefix('[')
-            .and_then(|rest| rest.strip_suffix(']'))
-        {
-            let section_name = section_name.trim();
-            if section_name.is_empty() {
-                return Err(ConfigError::InvalidLine {
-                    path: path.to_path_buf(),
-                    line_number: index + 1,
-                    line: raw_line.to_string(),
-                });
-            }
-
-            current_section = Some(section_name);
-            saw_settings_section |= section_name == SETTINGS_SECTION;
-            continue;
-        }
-
-        let Some(section_name) = current_section else {
-            return Err(ConfigError::InvalidLine {
-                path: path.to_path_buf(),
-                line_number: index + 1,
-                line: raw_line.to_string(),
-            });
-        };
-
-        let Some((raw_key, raw_value)) = line.split_once('=') else {
-            return Err(ConfigError::InvalidLine {
-                path: path.to_path_buf(),
-                line_number: index + 1,
-                line: raw_line.to_string(),
-            });
-        };
-
-        if section_name == SETTINGS_SECTION {
-            settings.insert(raw_key.trim().to_string(), raw_value.trim().to_string());
-        }
-    }
-
-    if !saw_settings_section {
-        return Err(ConfigError::MissingSection {
-            path: path.to_path_buf(),
-            section: SETTINGS_SECTION,
-        });
-    }
-
-    let log_level_file = parse_log_level(setting_value(&settings, path, "log.level.file")?);
-    let log_level_console = parse_log_level(setting_value(&settings, path, "log.level.console")?);
-    let content_with_escape = parse_boolean(
-        path,
-        "content.with.escape",
-        setting_value(&settings, path, "content.with.escape")?,
-    )?;
-
-    Ok(ParsedSettings {
-        log_level_file,
-        log_level_console,
-        content_with_escape,
+fn ensure_runtime_dirs(paths: &ConfigPaths, config: &AppConfig) -> Result<(), ConfigError> {
+    let backup_root = paths.backup_root(config);
+    fs::create_dir_all(&backup_root).map_err(|source| ConfigError::CreateDir {
+        path: backup_root,
+        source,
     })
 }
 
-fn setting_value<'a>(
-    settings: &'a HashMap<String, String>,
-    path: &Path,
-    key: &'static str,
-) -> Result<&'a str, ConfigError> {
-    settings
-        .get(key)
-        .map(String::as_str)
-        .ok_or_else(|| ConfigError::MissingKey {
-            path: path.to_path_buf(),
-            key,
-        })
-}
-
-fn parse_log_level(value: &str) -> String {
-    if VALID_LOG_LEVELS.contains(&value.to_ascii_lowercase().as_str()) {
-        value.to_string()
-    } else {
-        DEFAULT_LOG_LEVEL.to_string()
+fn validate_config(config: &AppConfig) -> Result<(), ConfigError> {
+    if config.tmux.binary.trim().is_empty() {
+        return Err(ConfigError::InvalidTmuxBinary);
     }
+
+    validate_backup_dir_name("dir_name", &config.backup.dir_name)?;
+    validate_backup_dir_name("socket_dir_name", &config.backup.socket_dir_name)?;
+
+    Ok(())
 }
 
-fn parse_boolean(path: &Path, key: &'static str, value: &str) -> Result<bool, ConfigError> {
-    match value.to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(ConfigError::InvalidBoolean {
-            path: path.to_path_buf(),
-            key,
+fn validate_backup_dir_name(field: &'static str, value: &str) -> Result<(), ConfigError> {
+    if value.trim().is_empty() {
+        return Err(ConfigError::InvalidBackupDirName {
+            field,
             value: value.to_string(),
-        }),
+        });
     }
-}
 
-#[derive(Debug)]
-struct ParsedSettings {
-    log_level_file: String,
-    log_level_console: String,
-    content_with_escape: bool,
+    Ok(())
 }

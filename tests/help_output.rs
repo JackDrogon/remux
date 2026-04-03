@@ -23,7 +23,7 @@ fn help_lists_option_inventory_and_config_path() {
         "-r [name]           restore tmux sessions from backup",
         "-ri                 restore sessions interactively",
         "-L [socket-name]    use the given tmux socket name",
-        "config file: $HOME/.remux/remux.conf",
+        "config file: $HOME/.remux/config.toml",
     ] {
         assert!(
             stdout.contains(expected),

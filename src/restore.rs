@@ -111,8 +111,9 @@ pub fn restore_from_config(
     requested_backup: Option<&str>,
 ) -> Result<String, RestoreError> {
     let adapter = TmuxAdapter::new(config);
-    let backup_name = resolve_backup_name(config.active_backup_path(), requested_backup)?;
-    restore_from_path_with_adapter(config.active_backup_path(), &adapter, &backup_name)?;
+    let active_backup_path = config.active_backup_path();
+    let backup_name = resolve_backup_name(&active_backup_path, requested_backup)?;
+    restore_from_path_with_adapter(&active_backup_path, &adapter, &backup_name)?;
     Ok(backup_name)
 }
 

@@ -157,7 +157,7 @@ pub fn capture_backup(
         for window in &session.windows {
             for pane in &window.panes {
                 let pane_file = backup_path.join(pane.idstr());
-                write_pane_capture(&adapter, pane, config.content_with_escape, &pane_file)?;
+                write_pane_capture(&adapter, pane, config.content_with_escape(), &pane_file)?;
             }
         }
     }

@@ -1,6 +1,10 @@
 use std::io;
 
-use crate::{BINARY_NAME, backup, catalog, config::RuntimeConfig, interactive, restore};
+use crate::{
+    BINARY_NAME, backup, catalog,
+    config::{RuntimeConfig, RuntimeOptions},
+    interactive, restore,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -133,7 +137,9 @@ where
 
     match parse_cli_args(argv) {
         Ok(args) => {
-            config.activate_socket(args.socket_name.as_deref());
+            config.set_runtime_options(RuntimeOptions::with_socket_name(
+                args.socket_name.as_deref(),
+            ));
             dispatch(args, &config)
         }
         Err(error) => {
@@ -146,7 +152,7 @@ where
 
 pub fn usage_text() -> String {
     format!(
-        "Usage: {BINARY_NAME} [OPTIONS]\n\nOptions:\n  -h                  print help message\n\n  -v                  version\n\n  -l [name]           list backup info\n      with [name]:    show detailed backup info by name\n      without [name]: show brief and detailed info interactively\n\n  -d [name]           delete a backup\n      with [name]:    delete by given name\n      without [name]: delete interactively\n\n  -b [name]           backup current tmux sessions\n      with [name]:    name the backup with given name\n      without [name]: name the backup with default name(timestamp)\n\n  -r [name]           restore tmux sessions from backup\n      with [name]:    restore sessions by backup name\n      without [name]: restore from the latest backup\n\n  -ri                 restore sessions interactively\n  -L [socket-name]    use the given tmux socket name\n  config file: $HOME/.remux/remux.conf"
+        "Usage: {BINARY_NAME} [OPTIONS]\n\nOptions:\n  -h                  print help message\n\n  -v                  version\n\n  -l [name]           list backup info\n      with [name]:    show detailed backup info by name\n      without [name]: show brief and detailed info interactively\n\n  -d [name]           delete a backup\n      with [name]:    delete by given name\n      without [name]: delete interactively\n\n  -b [name]           backup current tmux sessions\n      with [name]:    name the backup with given name\n      without [name]: name the backup with default name(timestamp)\n\n  -r [name]           restore tmux sessions from backup\n      with [name]:    restore sessions by backup name\n      without [name]: restore from the latest backup\n\n  -ri                 restore sessions interactively\n  -L [socket-name]    use the given tmux socket name\n  config file: $HOME/.remux/config.toml"
     )
 }
 

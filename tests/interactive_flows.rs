@@ -306,7 +306,7 @@ impl InteractiveEnv {
         fs::create_dir_all(&paths.user_path).expect("should create ~/.remux");
         fs::write(
             &paths.config_file,
-            "[settings]\nlog.level.file = INFO\nlog.level.console = INFO\ncontent.with.escape = true\n",
+            "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = true\n",
         )
         .expect("should write test config");
     }
@@ -336,7 +336,7 @@ impl InteractiveEnv {
     ) -> PathBuf {
         let mut config = RuntimeConfig::load_from_home(&self.home)
             .expect("runtime config should bootstrap temp HOME");
-        config.activate_socket(socket_name);
+        config.set_runtime_options(remux::config::RuntimeOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("backup directory should be created");
@@ -378,7 +378,7 @@ impl InteractiveEnv {
     fn write_restore_backup(&self, socket_name: Option<&str>, backup_id: &str) -> PathBuf {
         let mut config = RuntimeConfig::load_from_home(&self.home)
             .expect("runtime config should bootstrap temp HOME");
-        config.activate_socket(socket_name);
+        config.set_runtime_options(remux::config::RuntimeOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("restore backup directory should be created");

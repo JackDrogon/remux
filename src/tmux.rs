@@ -43,8 +43,8 @@ pub struct TmuxAdapter {
 impl TmuxAdapter {
     pub fn new(config: &RuntimeConfig) -> Self {
         Self {
-            command_prefix: config.tmux_cmd_prefix().to_vec(),
-            content_with_escape: config.content_with_escape,
+            command_prefix: config.tmux_command_prefix(),
+            content_with_escape: config.content_with_escape(),
             timeout: None,
         }
     }

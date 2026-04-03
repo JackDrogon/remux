@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::RuntimeConfig;
+use remux::config::{RuntimeConfig, RuntimeOptions};
 use remux::error::SubprocessError;
 use remux::tmux::{TmuxAdapter, TmuxCommand};
 
@@ -20,7 +20,7 @@ fn socket_prefix_is_inserted() {
         vec!["tmux", "has-session", "-tdemo"]
     );
 
-    config.activate_socket(Some("sockA"));
+    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
     let socket_adapter = TmuxAdapter::new(&config);
     assert_eq!(
         socket_adapter.render_command(TmuxCommand::HasSession {

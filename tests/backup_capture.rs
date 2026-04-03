@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{ConfigPaths, socket_dir_name};
+use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
 use remux::serde_legacy;
 
 #[test]
@@ -18,7 +18,7 @@ fn creates_legacy_backup_tree() {
 
     let backup_root = env
         .config_paths()
-        .backup_socket_root
+        .backup_socket_root(&AppConfig::default())
         .join(socket_dir_name(Some("sock/name")).unwrap());
     let backup_dir = backup_root.join("backup_20240101_120000");
     let json_path = backup_dir.join("backup_20240101_120000.json");
@@ -95,7 +95,9 @@ fn duplicate_backup_id_fails() {
     env.write_config(true);
 
     let paths = env.config_paths();
-    let backup_dir = paths.backup_root.join("existing_backup");
+    let backup_dir = paths
+        .backup_root(&AppConfig::default())
+        .join("existing_backup");
     fs::create_dir_all(&backup_dir).expect("should create duplicate backup dir");
     let sentinel = backup_dir.join("existing_backup.json");
     fs::write(&sentinel, "sentinel").expect("should write sentinel snapshot");
@@ -158,7 +160,10 @@ fn trimmed_backup_name_is_normalized_for_create_and_lookup() {
     let create = env.run_binary(&["-b", "  backup_trimmed  "]);
     assert_success(&create, "trimmed backup name should create successfully");
 
-    let backup_dir = env.config_paths().backup_root.join("backup_trimmed");
+    let backup_dir = env
+        .config_paths()
+        .backup_root(&AppConfig::default())
+        .join("backup_trimmed");
     assert!(
         backup_dir.is_dir(),
         "expected normalized backup directory at {}",
@@ -166,7 +171,7 @@ fn trimmed_backup_name_is_normalized_for_create_and_lookup() {
     );
     assert!(
         !env.config_paths()
-            .backup_root
+            .backup_root(&AppConfig::default())
             .join("  backup_trimmed  ")
             .exists(),
         "raw whitespace-padded backup directory should not be created"
@@ -191,7 +196,7 @@ fn default_backup_name_uses_legacy_timestamp_and_plain_capture_flag() {
     let output = env.run_binary(&["-b"]);
     assert_success(&output, "unnamed backup should succeed");
 
-    let backup_root = env.config_paths().backup_root;
+    let backup_root = env.config_paths().backup_root(&AppConfig::default());
     let backup_ids = list_directory_names(&backup_root);
     assert_eq!(
         backup_ids.len(),
@@ -234,7 +239,7 @@ fn no_server_exits_cleanly() {
 
     let named_root = env
         .config_paths()
-        .backup_socket_root
+        .backup_socket_root(&AppConfig::default())
         .join(socket_dir_name(Some("sock/name")).unwrap());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -359,7 +364,7 @@ impl TestEnv {
         fs::write(
             &paths.config_file,
             format!(
-                "[settings]\nlog.level.file = INFO\nlog.level.console = INFO\ncontent.with.escape = {}\n",
+                "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = {}\n",
                 if content_with_escape { "true" } else { "false" }
             ),
         )

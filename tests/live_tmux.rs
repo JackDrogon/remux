@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{ConfigPaths, socket_dir_name};
+use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
 
 #[test]
 #[ignore = "requires tmux on the supported Linux baseline"]
@@ -143,7 +143,7 @@ impl LiveTmuxEnv {
 
     fn backup_dir(&self, backup_name: &str) -> PathBuf {
         self.config_paths()
-            .backup_socket_root
+            .backup_socket_root(&AppConfig::default())
             .join(socket_dir_name(Some(self.socket_name())).expect("socket name should sanitize"))
             .join(backup_name)
     }

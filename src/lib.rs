@@ -12,7 +12,7 @@ pub mod tmux;
 
 pub const BINARY_NAME: &str = "remux";
 pub const HOME_DIR_NAME: &str = ".remux";
-pub const CONFIG_FILE_NAME: &str = "remux.conf";
+pub const CONFIG_FILE_NAME: &str = "config.toml";
 
 pub fn binary_name() -> &'static str {
     BINARY_NAME

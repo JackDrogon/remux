@@ -115,7 +115,7 @@ impl std::error::Error for CatalogError {
 
 pub fn list_backups(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
     list_backups_in_root(
-        config.active_backup_path(),
+        &config.active_backup_path(),
         BackupSortOrder::ModifiedAtDesc,
         SnapshotLoadMode::Full,
     )
@@ -123,7 +123,7 @@ pub fn list_backups(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogE
 
 pub fn list_backups_for_listing(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
     list_backups_in_root(
-        config.active_backup_path(),
+        &config.active_backup_path(),
         BackupSortOrder::BackupIdDesc,
         SnapshotLoadMode::Summary,
     )
@@ -132,13 +132,13 @@ pub fn list_backups_for_listing(config: &RuntimeConfig) -> Result<Vec<BackupEntr
 pub fn load_backup(config: &RuntimeConfig, backup_name: &str) -> Result<BackupEntry, CatalogError> {
     let normalized_name =
         normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
-    let root = config.active_backup_path().to_path_buf();
+    let root = config.active_backup_path();
 
     read_backup_entry_in_root(&root, &normalized_name)
 }
 
 pub fn latest_backup(config: &RuntimeConfig) -> Result<BackupEntry, CatalogError> {
-    let root = config.active_backup_path().to_path_buf();
+    let root = config.active_backup_path();
     list_backups(config)?
         .into_iter()
         .next()

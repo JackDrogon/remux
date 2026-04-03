@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use remux::catalog;
-use remux::config::RuntimeConfig;
+use remux::config::{RuntimeConfig, RuntimeOptions};
 use remux::model::{Pane, Session, Size, Tmux, Window};
 use remux::serde_legacy;
 
@@ -32,7 +32,7 @@ fn named_socket_listing_is_isolated() {
 
     let mut config = RuntimeConfig::load_from_home(temp_home.path())
         .expect("runtime config should load from temp HOME");
-    config.activate_socket(Some("sockA"));
+    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
 
     let named_backups =
         catalog::list_backups(&config).expect("named-socket catalog listing should succeed");
@@ -166,7 +166,7 @@ fn latest_backup_resolution_is_deterministic() {
 
     let mut config = RuntimeConfig::load_from_home(temp_home.path())
         .expect("runtime config should load from temp HOME");
-    config.activate_socket(Some("sockA"));
+    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
 
     let latest = catalog::resolve_restore_target(&config, None)
         .expect("latest backup should resolve from active root");
@@ -187,7 +187,7 @@ fn catalog_named_ops_reuse_normalized_backup_names() {
 
     let mut config = RuntimeConfig::load_from_home(temp_home.path())
         .expect("runtime config should load from temp HOME");
-    config.activate_socket(Some("sockA"));
+    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
 
     let loaded = catalog::load_backup(&config, "  backup_trimmed  ")
         .expect("catalog lookup should trim the requested backup name");
@@ -219,7 +219,7 @@ fn named_lookup_reads_only_requested_backup() {
 
     let mut config = RuntimeConfig::load_from_home(temp_home.path())
         .expect("runtime config should load from temp HOME");
-    config.activate_socket(Some("sockA"));
+    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
 
     let broken_dir = config.active_backup_path().join("backup_broken");
     fs::create_dir_all(&broken_dir).expect("broken backup directory should exist");
@@ -245,7 +245,7 @@ fn write_backup(
 ) -> PathBuf {
     let mut config =
         RuntimeConfig::load_from_home(home_dir).expect("runtime config should bootstrap temp HOME");
-    config.activate_socket(socket_name);
+    config.set_runtime_options(RuntimeOptions::with_socket_name(socket_name));
 
     let backup_dir = config.active_backup_path().join(backup_id);
     fs::create_dir_all(&backup_dir).expect("backup directory should be created");
