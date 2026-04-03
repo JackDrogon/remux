@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::config::RuntimeConfig;
+use crate::config::AppState;
 use crate::error::SubprocessError;
 
 pub const TMUX_BIN: &str = "tmux";
@@ -41,10 +41,10 @@ pub struct TmuxAdapter {
 }
 
 impl TmuxAdapter {
-    pub fn new(config: &RuntimeConfig) -> Self {
+    pub fn new(config: &AppState) -> Self {
         Self {
             command_prefix: config.tmux_command_prefix(),
-            content_with_escape: config.content_with_escape(),
+            content_with_escape: config.config().capture.with_escape,
             timeout: None,
         }
     }

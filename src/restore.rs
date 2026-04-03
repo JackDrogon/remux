@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backup_name::{BackupNameError, normalize_backup_name};
-use crate::config::RuntimeConfig;
+use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Tmux, Window};
 use crate::serde_legacy::{self, LegacySnapshotError};
@@ -107,7 +107,7 @@ impl From<SubprocessError> for RestoreError {
 }
 
 pub fn restore_from_config(
-    config: &RuntimeConfig,
+    config: &AppState,
     requested_backup: Option<&str>,
 ) -> Result<String, RestoreError> {
     let adapter = TmuxAdapter::new(config);

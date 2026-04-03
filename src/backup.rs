@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backup_name::BackupNameError;
-use crate::config::RuntimeConfig;
+use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
 use crate::serde_legacy::{self, LegacySnapshotError};
@@ -134,7 +134,7 @@ impl From<LegacySnapshotError> for BackupError {
 }
 
 pub fn capture_backup(
-    config: &RuntimeConfig,
+    config: &AppState,
     requested_backup_id: Option<&str>,
 ) -> Result<BackupOutcome, BackupError> {
     let backup_id = resolve_backup_id(requested_backup_id)?;
@@ -157,7 +157,12 @@ pub fn capture_backup(
         for window in &session.windows {
             for pane in &window.panes {
                 let pane_file = backup_path.join(pane.idstr());
-                write_pane_capture(&adapter, pane, config.content_with_escape(), &pane_file)?;
+                write_pane_capture(
+                    &adapter,
+                    pane,
+                    config.config().capture.with_escape,
+                    &pane_file,
+                )?;
             }
         }
     }

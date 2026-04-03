@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::backup_name::{BackupNameError, normalize_backup_name};
-use crate::config::RuntimeConfig;
+use crate::config::AppState;
 use crate::model::Tmux;
 use crate::serde_legacy::{self, LegacySnapshotError};
 
@@ -113,7 +113,7 @@ impl std::error::Error for CatalogError {
     }
 }
 
-pub fn list_backups(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
+pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
     list_backups_in_root(
         &config.active_backup_path(),
         BackupSortOrder::ModifiedAtDesc,
@@ -121,7 +121,7 @@ pub fn list_backups(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogE
     )
 }
 
-pub fn list_backups_for_listing(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
+pub fn list_backups_for_listing(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
     list_backups_in_root(
         &config.active_backup_path(),
         BackupSortOrder::BackupIdDesc,
@@ -129,7 +129,7 @@ pub fn list_backups_for_listing(config: &RuntimeConfig) -> Result<Vec<BackupEntr
     )
 }
 
-pub fn load_backup(config: &RuntimeConfig, backup_name: &str) -> Result<BackupEntry, CatalogError> {
+pub fn load_backup(config: &AppState, backup_name: &str) -> Result<BackupEntry, CatalogError> {
     let normalized_name =
         normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
     let root = config.active_backup_path();
@@ -137,7 +137,7 @@ pub fn load_backup(config: &RuntimeConfig, backup_name: &str) -> Result<BackupEn
     read_backup_entry_in_root(&root, &normalized_name)
 }
 
-pub fn latest_backup(config: &RuntimeConfig) -> Result<BackupEntry, CatalogError> {
+pub fn latest_backup(config: &AppState) -> Result<BackupEntry, CatalogError> {
     let root = config.active_backup_path();
     list_backups(config)?
         .into_iter()
@@ -146,7 +146,7 @@ pub fn latest_backup(config: &RuntimeConfig) -> Result<BackupEntry, CatalogError
 }
 
 pub fn resolve_restore_target(
-    config: &RuntimeConfig,
+    config: &AppState,
     requested_name: Option<&str>,
 ) -> Result<String, CatalogError> {
     match requested_name {
@@ -155,7 +155,7 @@ pub fn resolve_restore_target(
     }
 }
 
-pub fn delete_backup(config: &RuntimeConfig, backup_name: &str) -> Result<(), CatalogError> {
+pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), CatalogError> {
     let entry = load_backup(config, backup_name)?;
     fs::remove_dir_all(&entry.path).map_err(|source| CatalogError::DeleteBackup {
         path: entry.path,

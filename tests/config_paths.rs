@@ -3,19 +3,19 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{
-    AppConfig, ConfigPaths, DEFAULT_CONFIG_TEMPLATE, RuntimeConfig, RuntimeOptions, socket_dir_name,
+    AppConfig, AppState, ConfigPaths, DEFAULT_CONFIG_TEMPLATE, ExecutionOptions, socket_dir_name,
 };
 
 #[test]
 fn default_socket_uses_legacy_backup_root() {
     let temp_home = TempHome::new("default-socket");
-    let config = RuntimeConfig::load_from_home(temp_home.path())
+    let config = AppState::load_from_home(temp_home.path())
         .expect("default config should bootstrap and load");
 
     assert_eq!(config.socket_name(), None);
     assert_eq!(
         config.active_backup_path(),
-        config.paths().backup_root(config.app())
+        config.paths().backup_root(config.config())
     );
     assert_eq!(
         config.active_backup_path(),
@@ -27,10 +27,12 @@ fn default_socket_uses_legacy_backup_root() {
 #[test]
 fn named_socket_uses_sanitized_backup_root() {
     let temp_home = TempHome::new("named-socket");
-    let mut config = RuntimeConfig::load_from_home(temp_home.path())
+    let mut config = AppState::load_from_home(temp_home.path())
         .expect("default config should bootstrap and load");
 
-    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("custom/socket name")));
+    config.set_execution_options(ExecutionOptions::with_socket_name(Some(
+        "custom/socket name",
+    )));
 
     assert_eq!(
         socket_dir_name(Some("custom/socket name")).as_deref(),
@@ -56,10 +58,10 @@ fn named_socket_uses_sanitized_backup_root() {
 #[test]
 fn runtime_options_recompute_socket_dependent_values() {
     let temp_home = TempHome::new("runtime-options");
-    let mut config = RuntimeConfig::load_from_home(temp_home.path())
+    let mut config = AppState::load_from_home(temp_home.path())
         .expect("default config should bootstrap and load");
 
-    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sock/A")));
+    config.set_execution_options(ExecutionOptions::with_socket_name(Some("sock/A")));
     assert_eq!(config.socket_name(), Some("sock/A"));
     assert_eq!(
         config.active_backup_path(),
@@ -74,7 +76,7 @@ fn runtime_options_recompute_socket_dependent_values() {
         ]
     );
 
-    config.set_runtime_options(RuntimeOptions::default());
+    config.set_execution_options(ExecutionOptions::default());
     assert_eq!(config.socket_name(), None);
     assert_eq!(
         config.active_backup_path(),
@@ -92,12 +94,12 @@ fn missing_config_is_bootstrapped() {
         "bootstrap fixture should start empty"
     );
 
-    let config = RuntimeConfig::load_from_paths(paths.clone())
+    let config = AppState::load_from_paths(paths.clone())
         .expect("missing config should be bootstrapped and loaded");
 
     assert!(paths.user_path.is_dir(), "expected ~/.remux to be created");
     assert!(
-        paths.backup_root(config.app()).is_dir(),
+        paths.backup_root(config.config()).is_dir(),
         "expected backup root to be created"
     );
     assert!(
@@ -109,7 +111,7 @@ fn missing_config_is_bootstrapped() {
         DEFAULT_CONFIG_TEMPLATE
     );
     assert!(
-        config.content_with_escape(),
+        config.config().capture.with_escape,
         "default config should keep escapes enabled"
     );
 }
@@ -125,7 +127,7 @@ fn malformed_config_is_reported() {
     )
     .expect("should write malformed config");
 
-    let error = RuntimeConfig::load_from_paths(paths).unwrap_err();
+    let error = AppState::load_from_paths(paths).unwrap_err();
     let message = error.to_string();
 
     assert!(
@@ -145,7 +147,7 @@ fn unknown_config_fields_are_rejected() {
     )
     .expect("should write unknown-field config");
 
-    let error = RuntimeConfig::load_from_paths(paths).unwrap_err();
+    let error = AppState::load_from_paths(paths).unwrap_err();
     let message = error.to_string();
 
     assert!(
@@ -166,7 +168,7 @@ fn empty_tmux_binary_is_rejected() {
     )
     .expect("should write invalid tmux config");
 
-    let error = RuntimeConfig::load_from_paths(paths).unwrap_err();
+    let error = AppState::load_from_paths(paths).unwrap_err();
     let message = error.to_string();
 
     assert_eq!(message, "tmux.binary must not be empty");

@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     BINARY_NAME, backup, catalog,
-    config::{RuntimeConfig, RuntimeOptions},
+    config::{AppState, ExecutionOptions},
     interactive, restore,
 };
 
@@ -127,7 +127,7 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let mut config = match RuntimeConfig::load() {
+    let mut config = match AppState::load() {
         Ok(config) => config,
         Err(error) => {
             eprintln!("{error}");
@@ -137,7 +137,7 @@ where
 
     match parse_cli_args(argv) {
         Ok(args) => {
-            config.set_runtime_options(RuntimeOptions::with_socket_name(
+            config.set_execution_options(ExecutionOptions::with_socket_name(
                 args.socket_name.as_deref(),
             ));
             dispatch(args, &config)
@@ -156,7 +156,7 @@ pub fn usage_text() -> String {
     )
 }
 
-fn dispatch(args: CliArgs, config: &RuntimeConfig) -> i32 {
+fn dispatch(args: CliArgs, config: &AppState) -> i32 {
     match args.action {
         Action::Help => {
             println!("{}", usage_text());
@@ -187,7 +187,7 @@ fn exit_from_result(result: Result<(), String>) -> i32 {
     }
 }
 
-fn show_and_action(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(), String> {
+fn show_and_action(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     match action_arg {
         Some(backup_name) => {
             let entry =
@@ -199,14 +199,14 @@ fn show_and_action(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(
     }
 }
 
-fn do_delete(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(), String> {
+fn do_delete(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     let backup_name = action_arg.ok_or_else(|| "delete requires a backup name".to_string())?;
     catalog::delete_backup(config, backup_name).map_err(|error| error.to_string())?;
     println!("Backup {backup_name} was deleted");
     Ok(())
 }
 
-fn do_backup(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(), String> {
+fn do_backup(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     match backup::capture_backup(config, action_arg) {
         Ok(backup::BackupOutcome::Created { path, .. }) => {
             println!("Backup of sessions was saved under {}", path.display());
@@ -220,13 +220,13 @@ fn do_backup(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(), Str
     }
 }
 
-fn do_restore(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(), String> {
+fn do_restore(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     restore::restore_from_config(config, action_arg)
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
 
-fn interactive_list(config: &RuntimeConfig) -> Result<(), String> {
+fn interactive_list(config: &AppState) -> Result<(), String> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();
@@ -234,7 +234,7 @@ fn interactive_list(config: &RuntimeConfig) -> Result<(), String> {
     interactive::interactive_list(config, &mut input, &mut output)
 }
 
-fn interactive_delete(config: &RuntimeConfig) -> Result<(), String> {
+fn interactive_delete(config: &AppState) -> Result<(), String> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();
@@ -242,7 +242,7 @@ fn interactive_delete(config: &RuntimeConfig) -> Result<(), String> {
     interactive::interactive_delete(config, &mut input, &mut output)
 }
 
-fn interactive_restore(config: &RuntimeConfig) -> Result<(), String> {
+fn interactive_restore(config: &AppState) -> Result<(), String> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();

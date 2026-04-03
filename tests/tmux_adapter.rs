@@ -2,14 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{RuntimeConfig, RuntimeOptions};
+use remux::config::{AppState, ExecutionOptions};
 use remux::error::SubprocessError;
 use remux::tmux::{TmuxAdapter, TmuxCommand};
 
 #[test]
 fn socket_prefix_is_inserted() {
     let temp_home = TempHome::new("socket-prefix");
-    let mut config = RuntimeConfig::load_from_home(temp_home.path())
+    let mut config = AppState::load_from_home(temp_home.path())
         .expect("config bootstrap should succeed for socket-prefix test");
 
     let default_adapter = TmuxAdapter::new(&config);
@@ -20,7 +20,7 @@ fn socket_prefix_is_inserted() {
         vec!["tmux", "has-session", "-tdemo"]
     );
 
-    config.set_runtime_options(RuntimeOptions::with_socket_name(Some("sockA")));
+    config.set_execution_options(ExecutionOptions::with_socket_name(Some("sockA")));
     let socket_adapter = TmuxAdapter::new(&config);
     assert_eq!(
         socket_adapter.render_command(TmuxCommand::HasSession {

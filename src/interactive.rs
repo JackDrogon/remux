@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, Write};
 
-use crate::{catalog, config::RuntimeConfig, restore};
+use crate::{catalog, config::AppState, restore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FlowMode {
@@ -10,7 +10,7 @@ enum FlowMode {
 }
 
 pub fn interactive_list<R, W>(
-    config: &RuntimeConfig,
+    config: &AppState,
     input: &mut R,
     output: &mut W,
 ) -> Result<(), String>
@@ -49,7 +49,7 @@ where
 }
 
 pub fn interactive_delete<R, W>(
-    config: &RuntimeConfig,
+    config: &AppState,
     input: &mut R,
     output: &mut W,
 ) -> Result<(), String>
@@ -61,7 +61,7 @@ where
 }
 
 pub fn interactive_restore<R, W>(
-    config: &RuntimeConfig,
+    config: &AppState,
     input: &mut R,
     output: &mut W,
 ) -> Result<(), String>
@@ -73,7 +73,7 @@ where
 }
 
 fn run_flow<R, W>(
-    config: &RuntimeConfig,
+    config: &AppState,
     input: &mut R,
     output: &mut W,
     mode: FlowMode,

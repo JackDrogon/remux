@@ -3,7 +3,7 @@ name = "remux"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["c"]
+authors = ["Jack Drogon"]
 
 [lints.rust]
 unused_must_use = "deny"

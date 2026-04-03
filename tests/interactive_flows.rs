@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{ConfigPaths, RuntimeConfig};
+use remux::config::{AppState, ConfigPaths, ExecutionOptions};
 use remux::model::{Pane, Session, Size, Tmux, Window};
 use remux::serde_legacy;
 
@@ -334,9 +334,9 @@ impl InteractiveEnv {
         create_time: &str,
         pane_paths: &[&str],
     ) -> PathBuf {
-        let mut config = RuntimeConfig::load_from_home(&self.home)
+        let mut config = AppState::load_from_home(&self.home)
             .expect("runtime config should bootstrap temp HOME");
-        config.set_runtime_options(remux::config::RuntimeOptions::with_socket_name(socket_name));
+        config.set_execution_options(ExecutionOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("backup directory should be created");
@@ -376,9 +376,9 @@ impl InteractiveEnv {
     }
 
     fn write_restore_backup(&self, socket_name: Option<&str>, backup_id: &str) -> PathBuf {
-        let mut config = RuntimeConfig::load_from_home(&self.home)
+        let mut config = AppState::load_from_home(&self.home)
             .expect("runtime config should bootstrap temp HOME");
-        config.set_runtime_options(remux::config::RuntimeOptions::with_socket_name(socket_name));
+        config.set_execution_options(ExecutionOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("restore backup directory should be created");

@@ -3,17 +3,17 @@ use std::path::PathBuf;
 use super::{AppConfig, ConfigError, ConfigPaths, loader};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeOptions {
+pub struct ExecutionOptions {
     socket_name: Option<String>,
 }
 
-impl Default for RuntimeOptions {
+impl Default for ExecutionOptions {
     fn default() -> Self {
         Self { socket_name: None }
     }
 }
 
-impl RuntimeOptions {
+impl ExecutionOptions {
     pub fn with_socket_name(socket_name: Option<&str>) -> Self {
         Self {
             socket_name: socket_name
@@ -29,20 +29,20 @@ impl RuntimeOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeConfig {
+pub struct AppState {
     paths: ConfigPaths,
-    app: AppConfig,
-    runtime: RuntimeOptions,
+    config: AppConfig,
+    execution: ExecutionOptions,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct RuntimeContext<'a> {
+pub struct ExecutionContext<'a> {
     paths: &'a ConfigPaths,
-    app: &'a AppConfig,
-    runtime: &'a RuntimeOptions,
+    config: &'a AppConfig,
+    execution: &'a ExecutionOptions,
 }
 
-impl RuntimeConfig {
+impl AppState {
     pub fn load() -> Result<Self, ConfigError> {
         Self::load_from_paths(ConfigPaths::from_env()?)
     }
@@ -55,76 +55,60 @@ impl RuntimeConfig {
     }
 
     pub fn load_from_paths(paths: ConfigPaths) -> Result<Self, ConfigError> {
-        let app = loader::load_or_init_app_config(&paths)?;
+        let config = loader::load_or_init_app_config(&paths)?;
 
         Ok(Self {
             paths,
-            app,
-            runtime: RuntimeOptions::default(),
+            config,
+            execution: ExecutionOptions::default(),
         })
     }
 
-    pub fn set_runtime_options(&mut self, runtime: RuntimeOptions) {
-        self.runtime = runtime;
+    pub fn set_execution_options(&mut self, execution: ExecutionOptions) {
+        self.execution = execution;
     }
 
     pub fn paths(&self) -> &ConfigPaths {
         &self.paths
     }
 
-    pub fn app(&self) -> &AppConfig {
-        &self.app
+    pub fn config(&self) -> &AppConfig {
+        &self.config
     }
 
-    pub fn runtime_options(&self) -> &RuntimeOptions {
-        &self.runtime
-    }
-
-    pub fn runtime_context(&self) -> RuntimeContext<'_> {
-        RuntimeContext {
+    fn execution_context(&self) -> ExecutionContext<'_> {
+        ExecutionContext {
             paths: &self.paths,
-            app: &self.app,
-            runtime: &self.runtime,
+            config: &self.config,
+            execution: &self.execution,
         }
     }
 
     pub fn socket_name(&self) -> Option<&str> {
-        self.runtime.socket_name()
+        self.execution.socket_name()
     }
 
     pub fn active_backup_path(&self) -> PathBuf {
-        self.runtime_context().active_backup_path()
+        self.execution_context().active_backup_path()
     }
 
     pub fn tmux_command_prefix(&self) -> Vec<String> {
-        self.runtime_context().tmux_command_prefix()
-    }
-
-    pub fn content_with_escape(&self) -> bool {
-        self.app.capture.with_escape
-    }
-
-    pub fn log_level_file(&self) -> &'static str {
-        self.app.logging.file.as_str()
-    }
-
-    pub fn log_level_console(&self) -> &'static str {
-        self.app.logging.console.as_str()
+        self.execution_context().tmux_command_prefix()
     }
 }
 
-impl RuntimeContext<'_> {
+impl ExecutionContext<'_> {
     pub fn socket_name(&self) -> Option<&str> {
-        self.runtime.socket_name()
+        self.execution.socket_name()
     }
 
     pub fn active_backup_path(&self) -> PathBuf {
         self.paths
-            .active_backup_path(self.app, self.runtime.socket_name())
+            .active_backup_path(self.config, self.execution.socket_name())
     }
 
     pub fn tmux_command_prefix(&self) -> Vec<String> {
-        let mut prefix = vec![self.app.tmux.binary.clone()];
+        let mut prefix = vec![self.config.tmux.binary.clone()];
         if let Some(socket_name) = self.socket_name() {
             prefix.push("-L".to_string());
             prefix.push(socket_name.to_string());
