@@ -135,6 +135,44 @@ fn malformed_config_is_reported() {
 }
 
 #[test]
+fn unknown_config_fields_are_rejected() {
+    let temp_home = TempHome::new("unknown-field");
+    let paths = ConfigPaths::from_home(temp_home.path());
+    fs::create_dir_all(&paths.user_path).expect("should create ~/.remux for unknown-field test");
+    fs::write(
+        &paths.config_file,
+        "[logging]\nfile = \"info\"\nconsole = \"info\"\nextra = true\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"tmux\"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
+    )
+    .expect("should write unknown-field config");
+
+    let error = RuntimeConfig::load_from_paths(paths).unwrap_err();
+    let message = error.to_string();
+
+    assert!(
+        message.contains("unknown field") && message.contains("extra"),
+        "unexpected unknown-field error: {message}"
+    );
+}
+
+#[test]
+fn empty_tmux_binary_is_rejected() {
+    let temp_home = TempHome::new("empty-tmux-binary");
+    let paths = ConfigPaths::from_home(temp_home.path());
+    fs::create_dir_all(&paths.user_path)
+        .expect("should create ~/.remux for empty-tmux-binary test");
+    fs::write(
+        &paths.config_file,
+        "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"   \"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
+    )
+    .expect("should write invalid tmux config");
+
+    let error = RuntimeConfig::load_from_paths(paths).unwrap_err();
+    let message = error.to_string();
+
+    assert_eq!(message, "tmux.binary must not be empty");
+}
+
+#[test]
 fn default_app_config_exposes_readable_sections() {
     let config = AppConfig::default();
 
