@@ -1,0 +1,27 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 1 test
+test skips_conflicting_session_names ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.05s
+
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 1 test
+test malformed_backup_fails_fast ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 1 test
+test missing_pane_file_fails_fast_before_tmux_mutation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.01s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s

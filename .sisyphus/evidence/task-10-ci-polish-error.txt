@@ -1,0 +1,9 @@
++zsh:1> cargo install --path . --bin retmux --locked --root /tmp/retmux-install-root
+  Installing retmux v0.1.0 (/home/c/Program/Workspace/Remux/remux)
+    Updating `tuna` index
+    Finished `release` profile [optimized] target(s) in 0.50s
+   Replacing /tmp/retmux-install-root/bin/retmux
+    Replaced package `retmux v0.1.0 (/home/c/Program/Workspace/Remux/remux)` with `retmux v0.1.0 (/home/c/Program/Workspace/Remux/remux)` (executable `retmux`)
+warning: be sure to add `/tmp/retmux-install-root/bin` to your PATH to be able to run the installed binaries
++zsh:1> /tmp/retmux-install-root/bin/retmux -h
++zsh:1> test -s /tmp/retmux-installed-help.txt

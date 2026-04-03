@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/backup_capture.rs (target/debug/deps/backup_capture-9e9125ba379a26d9)
+
+running 1 test
+test duplicate_backup_id_fails ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/backup_capture.rs (target/debug/deps/backup_capture-9e9125ba379a26d9)
+
+running 1 test
+test no_server_exits_cleanly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

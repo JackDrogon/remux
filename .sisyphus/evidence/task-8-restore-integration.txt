@@ -1,0 +1,21 @@
+   Compiling retmux v0.1.0 (/home/c/Program/Workspace/Remux/remux)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 4 tests
+test malformed_backup_fails_fast ... ok
+test missing_pane_file_fails_fast_before_tmux_mutation ... ok
+test skips_conflicting_session_names ... ok
+test restores_latest_backup_when_name_missing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 1 test
+test restores_latest_backup_when_name_missing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.10s
+

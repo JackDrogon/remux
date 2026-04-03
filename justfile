@@ -1,6 +1,6 @@
 #!/usr/bin/env -S just --justfile
 
-# Justfile for remux
+# Justfile for retmux
 # Run `just` or `just --list` to see available recipes
 
 # ─────────────────────────────────────────────────────────────────────
@@ -16,6 +16,7 @@ alias l := lint
 alias c := check
 alias d := docs
 alias s := spellcheck
+alias tl := test-live
 alias pc := pre-commit
 
 # Show all available recipes
@@ -35,7 +36,7 @@ build:
 # Build and run the application
 [group('build')]
 run:
-    cargo run
+    cargo run --bin retmux
 
 # Remove Cargo build artifacts
 [group('build')]
@@ -54,7 +55,7 @@ fmt:
 # Format repository-level TOML, JSON, Markdown, and YAML files
 [group('quality')]
 fmt-repo:
-    dprint fmt
+    dprint fmt "README.md" ".github/workflows/ci.yml" "Cargo.toml"
 
 # Run Clippy lints
 [group('quality')]
@@ -75,14 +76,20 @@ spellcheck:
 test:
     cargo test --all-features
 
+# Run tmux-backed integration tests against a real tmux server
+[group('test')]
+test-live:
+    cargo test --test live_tmux -- --ignored --nocapture
+
 # Run the full local verification suite
 [group('test')]
 check:
     cargo fmt --all --check
-    dprint check
+    dprint check "README.md" ".github/workflows/ci.yml" "Cargo.toml"
     typos .
     cargo clippy --all-targets --all-features -- -D warnings
     cargo test --all-features
+    cargo test --test live_tmux -- --ignored --nocapture
 
 # Run the same checks before committing
 [group('test')]

@@ -1,0 +1,39 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/interactive_flows.rs (target/debug/deps/interactive_flows-93f3308b0a59762c)
+
+running 4 tests
+test interactive_delete_without_arg_confirms_before_deleting ... ok
+test interactive_list_without_arg_shows_details_until_quit ... ok
+test invalid_input_and_eof_are_reported ... ok
+test interactive_restore_accepts_scripted_input ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/help_output.rs (target/debug/deps/help_output-f22a166610bea21c)
+
+running 2 tests
+test help_lists_option_inventory_and_config_path ... ok
+test version_output_is_stable_and_bootstraps_config ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+
+=== scripted interactive restore command ===
+printf '1\nyes\n' | cargo run --quiet --bin retmux -- -ri
+========================================================================
+ No. Name              Sessions                       Created on
+========================================================================
+* 1 backup_20240101_120000 work                           2024-01-01 12:00:00
+------------------------------------------------------------------------
+                                          Latest default backup with (*)
+retmux> Please give backup No. (press q to exit): Details of backup:backup_20240101_120000
+========================================================================
+                               Backup was created on 2024-01-01 12:00:00
+Backup [backup_20240101_120000] (1 sessions):
+  Session [work] (1 windows):
+    Window (1) [editor] (1 panes):
+      Pane (0) /tmp/work
+retmux> restore backup_20240101_120000? [yes|no] Backup backup_20240101_120000 was restored
+

@@ -1,0 +1,44 @@
+{
+  "__class__": "Tmux",
+  "__module__": "tmuxbk.tmux_obj",
+  "create_time": "2024-01-02 12:00:00",
+  "sessions": [
+    {
+      "__class__": "Session",
+      "__module__": "tmuxbk.tmux_obj",
+      "attached": true,
+      "name": "ops",
+      "size": [
+        100,
+        30
+      ],
+      "windows": [
+        {
+          "__class__": "Window",
+          "__module__": "tmuxbk.tmux_obj",
+          "active": true,
+          "layout": "1900,100x30,0,0,0",
+          "panes": [
+            {
+              "__class__": "Pane",
+              "__module__": "tmuxbk.tmux_obj",
+              "active": true,
+              "cont_file": "",
+              "pane_id": 0,
+              "path": "/srv/ops",
+              "sess_name": "ops",
+              "size": [
+                100,
+                30
+              ],
+              "win_id": 2
+            }
+          ],
+          "sess_name": "ops",
+          "win_id": 2
+        }
+      ]
+    }
+  ],
+  "tid": "backup_20240102_120000"
+}

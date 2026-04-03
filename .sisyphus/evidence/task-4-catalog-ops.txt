@@ -1,0 +1,28 @@
+Task 4 verification evidence
+Date: 2026-04-03
+
+Command:
+cargo test --test catalog_ops && cargo test --test catalog_ops named_socket_listing_is_isolated -- --exact --nocapture && cargo build
+
+Output:
+   Compiling retmux v0.1.0 (/home/c/Program/Workspace/Remux/remux)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/catalog_ops.rs (target/debug/deps/catalog_ops-2c0f915cfcafcee4)
+
+running 4 tests
+test delete_missing_backup_fails ... ok
+test delete_named_backup_succeeds ... ok
+test named_socket_listing_is_isolated ... ok
+test latest_backup_resolution_is_deterministic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/catalog_ops.rs (target/debug/deps/catalog_ops-2c0f915cfcafcee4)
+
+running 1 test
+test named_socket_listing_is_isolated ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.01s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s

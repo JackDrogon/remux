@@ -1,0 +1,264 @@
++zsh:1> just check
+cargo fmt --all --check
+dprint check "README.md" ".github/workflows/ci.yml" "Cargo.toml"
+typos .
+cargo clippy --all-targets --all-features -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+cargo test --all-features
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.47s
+     Running unittests src/lib.rs (target/debug/deps/retmux-45a9bc278e9142b1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/retmux-6a1e883bd366ca08)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backup_capture.rs (target/debug/deps/backup_capture-9e9125ba379a26d9)
+
+running 4 tests
+test duplicate_backup_id_fails ... ok
+test no_server_exits_cleanly ... ok
+test default_backup_name_uses_legacy_timestamp_and_plain_capture_flag ... ok
+test creates_legacy_backup_tree ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/catalog_ops.rs (target/debug/deps/catalog_ops-2c0f915cfcafcee4)
+
+running 4 tests
+test delete_missing_backup_fails ... ok
+test delete_named_backup_succeeds ... ok
+test named_socket_listing_is_isolated ... ok
+test latest_backup_resolution_is_deterministic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/cli_contract.rs (target/debug/deps/cli_contract-4ef08055354e4b18)
+
+running 4 tests
+test socket_can_appear_before_or_after_action ... ok
+test too_many_args_or_invalid_shape_are_rejected ... ok
+test missing_socket_value_is_rejected ... ok
+test invalid_argument_shapes_exit_nonzero ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/compat_fixtures.rs (target/debug/deps/compat_fixtures-c44eefd5048f2839)
+
+running 3 tests
+test corrupt_fixture_shape_is_rejected ... ok
+test legacy_fixture_assets_are_complete_and_well_formed ... ok
+test rust_decodes_python_snapshot_fixture ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compat_model.rs (target/debug/deps/compat_model-047dca5487701580)
+
+running 4 tests
+test helper_semantics_match_legacy_python_model ... ok
+test malformed_legacy_snapshot_is_rejected ... ok
+test rust_round_trip_preserves_legacy_keys ... ok
+test python_fixture_uses_constructor_defaults_when_optional_fields_are_missing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/config_paths.rs (target/debug/deps/config_paths-caff45d0b3ebf846)
+
+running 4 tests
+test default_socket_uses_legacy_backup_root ... ok
+test malformed_config_is_reported ... ok
+test missing_config_is_bootstrapped ... ok
+test named_socket_uses_sanitized_backup_root ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/help_output.rs (target/debug/deps/help_output-f22a166610bea21c)
+
+running 2 tests
+test help_lists_option_inventory_and_config_path ... ok
+test version_output_is_stable_and_bootstraps_config ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/interactive_flows.rs (target/debug/deps/interactive_flows-93f3308b0a59762c)
+
+running 4 tests
+test interactive_delete_without_arg_confirms_before_deleting ... ok
+test interactive_list_without_arg_shows_details_until_quit ... ok
+test invalid_input_and_eof_are_reported ... ok
+test interactive_restore_accepts_scripted_input ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/live_tmux.rs (target/debug/deps/live_tmux-2e80825992fc706a)
+
+running 2 tests
+test backup_list_and_delete_work_against_real_tmux ... ignored, requires tmux on the supported Linux baseline
+test restore_recreates_session_against_real_tmux ... ignored, requires tmux on the supported Linux baseline
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 4 tests
+test malformed_backup_fails_fast ... ok
+test missing_pane_file_fails_fast_before_tmux_mutation ... ok
+test skips_conflicting_session_names ... ok
+test restores_latest_backup_when_name_missing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/tmux_adapter.rs (target/debug/deps/tmux_adapter-1dabe1d7c5ca9ae2)
+
+running 3 tests
+test rendered_command_templates_match_legacy_shapes ... ok
+test missing_tmux_binary_returns_typed_error ... ok
+test socket_prefix_is_inserted ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests retmux
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test --test live_tmux -- --ignored --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/live_tmux.rs (target/debug/deps/live_tmux-2e80825992fc706a)
+
+running 2 tests
+test backup_list_and_delete_work_against_real_tmux ... ok
+test restore_recreates_session_against_real_tmux ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
++zsh:1> cargo test --all-features
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/retmux-45a9bc278e9142b1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/retmux-6a1e883bd366ca08)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backup_capture.rs (target/debug/deps/backup_capture-9e9125ba379a26d9)
+
+running 4 tests
+test duplicate_backup_id_fails ... ok
+test no_server_exits_cleanly ... ok
+test default_backup_name_uses_legacy_timestamp_and_plain_capture_flag ... ok
+test creates_legacy_backup_tree ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/catalog_ops.rs (target/debug/deps/catalog_ops-2c0f915cfcafcee4)
+
+running 4 tests
+test delete_missing_backup_fails ... ok
+test delete_named_backup_succeeds ... ok
+test named_socket_listing_is_isolated ... ok
+test latest_backup_resolution_is_deterministic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/cli_contract.rs (target/debug/deps/cli_contract-4ef08055354e4b18)
+
+running 4 tests
+test missing_socket_value_is_rejected ... ok
+test socket_can_appear_before_or_after_action ... ok
+test too_many_args_or_invalid_shape_are_rejected ... ok
+test invalid_argument_shapes_exit_nonzero ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compat_fixtures.rs (target/debug/deps/compat_fixtures-c44eefd5048f2839)
+
+running 3 tests
+test corrupt_fixture_shape_is_rejected ... ok
+test legacy_fixture_assets_are_complete_and_well_formed ... ok
+test rust_decodes_python_snapshot_fixture ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compat_model.rs (target/debug/deps/compat_model-047dca5487701580)
+
+running 4 tests
+test helper_semantics_match_legacy_python_model ... ok
+test malformed_legacy_snapshot_is_rejected ... ok
+test rust_round_trip_preserves_legacy_keys ... ok
+test python_fixture_uses_constructor_defaults_when_optional_fields_are_missing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/config_paths.rs (target/debug/deps/config_paths-caff45d0b3ebf846)
+
+running 4 tests
+test malformed_config_is_reported ... ok
+test default_socket_uses_legacy_backup_root ... ok
+test missing_config_is_bootstrapped ... ok
+test named_socket_uses_sanitized_backup_root ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/help_output.rs (target/debug/deps/help_output-f22a166610bea21c)
+
+running 2 tests
+test version_output_is_stable_and_bootstraps_config ... ok
+test help_lists_option_inventory_and_config_path ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/interactive_flows.rs (target/debug/deps/interactive_flows-93f3308b0a59762c)
+
+running 4 tests
+test interactive_list_without_arg_shows_details_until_quit ... ok
+test interactive_delete_without_arg_confirms_before_deleting ... ok
+test invalid_input_and_eof_are_reported ... ok
+test interactive_restore_accepts_scripted_input ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/live_tmux.rs (target/debug/deps/live_tmux-2e80825992fc706a)
+
+running 2 tests
+test backup_list_and_delete_work_against_real_tmux ... ignored, requires tmux on the supported Linux baseline
+test restore_recreates_session_against_real_tmux ... ignored, requires tmux on the supported Linux baseline
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restore_integration.rs (target/debug/deps/restore_integration-7e7631b8565a5f33)
+
+running 4 tests
+test malformed_backup_fails_fast ... ok
+test missing_pane_file_fails_fast_before_tmux_mutation ... ok
+test skips_conflicting_session_names ... ok
+test restores_latest_backup_when_name_missing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/tmux_adapter.rs (target/debug/deps/tmux_adapter-1dabe1d7c5ca9ae2)
+
+running 3 tests
+test rendered_command_templates_match_legacy_shapes ... ok
+test missing_tmux_binary_returns_typed_error ... ok
+test socket_prefix_is_inserted ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests retmux
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,7 +1,3 @@
-fn app_name() -> &'static str {
-    "remux"
-}
-
 fn main() {
-    println!("Hello, {}!", app_name());
+    std::process::exit(retmux::run(std::env::args()));
 }
