@@ -1,0 +1,18 @@
+[files]
+extend-exclude = [
+  ".git",
+  "target",
+  "Cargo.lock",
+]
+
+[default]
+extend-ignore-re = [
+  "(?i)0x[0-9a-f]{8}",
+  "(?i)0x[0-9a-f]{40}",
+  "(?i)0x[0-9a-f]{64}",
+]
+
+[default.extend-words]
+crate = "crate"
+ser = "ser"
+consts = "consts"
