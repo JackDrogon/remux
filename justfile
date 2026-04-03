@@ -1,6 +1,6 @@
 #!/usr/bin/env -S just --justfile
 
-# Justfile for retmux
+# Justfile for remux
 # Run `just` or `just --list` to see available recipes
 
 # ─────────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ build:
 # Build and run the application
 [group('build')]
 run:
-    cargo run --bin retmux
+    cargo run --bin remux
 
 # Remove Cargo build artifacts
 [group('build')]

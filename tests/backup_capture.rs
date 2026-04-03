@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::{ConfigPaths, socket_dir_name};
-use retmux::serde_legacy;
+use remux::config::{ConfigPaths, socket_dir_name};
+use remux::serde_legacy;
 
 #[test]
 fn creates_legacy_backup_tree() {
@@ -326,7 +326,7 @@ impl TestEnv {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "retmux-backup-capture-{label}-{}-{unique}",
+            "remux-backup-capture-{label}-{}-{unique}",
             std::process::id()
         ));
 
@@ -355,7 +355,7 @@ impl TestEnv {
 
     fn write_config(&self, content_with_escape: bool) {
         let paths = self.config_paths();
-        fs::create_dir_all(&paths.user_path).expect("should create ~/.retmux");
+        fs::create_dir_all(&paths.user_path).expect("should create ~/.remux");
         fs::write(
             &paths.config_file,
             format!(
@@ -394,13 +394,13 @@ impl TestEnv {
     }
 
     fn run_binary_inner(&self, args: &[&str], no_server: bool) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_retmux"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_remux"));
         command.args(args);
         command.env("HOME", &self.home);
         command.env("PATH", &self.bin_dir);
-        command.env("RETMUX_FAKE_LOG", &self.fake_log);
+        command.env("REMUX_FAKE_LOG", &self.fake_log);
         if no_server {
-            command.env("RETMUX_FAKE_NO_SERVER", "1");
+            command.env("REMUX_FAKE_NO_SERVER", "1");
         }
         command
             .output()
@@ -419,8 +419,8 @@ impl Drop for TestEnv {
 const FAKE_TMUX_SCRIPT: &str = r#"#!/bin/sh
 set -eu
 
-if [ -n "${RETMUX_FAKE_LOG:-}" ]; then
-  printf '%s\n' "$*" >> "$RETMUX_FAKE_LOG"
+if [ -n "${REMUX_FAKE_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$REMUX_FAKE_LOG"
 fi
 
 if [ "${1:-}" = "-L" ]; then
@@ -429,7 +429,7 @@ fi
 
 case "${1:-}" in
   list-sessions)
-    if [ "${RETMUX_FAKE_NO_SERVER:-0}" = "1" ]; then
+    if [ "${REMUX_FAKE_NO_SERVER:-0}" = "1" ]; then
       exit 1
     fi
     printf 'work:=:(120,40):=:0\n'

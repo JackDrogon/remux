@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::{ConfigPaths, RuntimeConfig};
-use retmux::model::{Pane, Session, Size, Tmux, Window};
-use retmux::serde_legacy;
+use remux::config::{ConfigPaths, RuntimeConfig};
+use remux::model::{Pane, Session, Size, Tmux, Window};
+use remux::serde_legacy;
 
 #[test]
 fn interactive_list_without_arg_shows_details_until_quit() {
@@ -26,7 +26,7 @@ fn interactive_list_without_arg_shows_details_until_quit() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("retmux> Please give backup No. (press q to exit):"),
+        stdout.contains("remux> Please give backup No. (press q to exit):"),
         "expected interactive selection prompt, stdout was: {stdout}"
     );
     assert!(
@@ -107,7 +107,7 @@ fn interactive_list_without_input_returns_summary_successfully() {
         "expected backup summary to be printed, stdout was: {stdout}"
     );
     assert!(
-        stdout.contains("retmux> Please give backup No. (press q to exit):"),
+        stdout.contains("remux> Please give backup No. (press q to exit):"),
         "expected prompt to still be shown before EOF exit, stdout was: {stdout}"
     );
 
@@ -173,7 +173,7 @@ fn interactive_restore_accepts_scripted_input() {
         &log,
         "list-sessions -F#S:=:(#{window_width},#{window_height}):=:#{session_attached}",
     );
-    assert_contains(&log, "new-session -d -sretmux_dummy_");
+    assert_contains(&log, "new-session -d -sremux_dummy_");
     assert_contains(&log, "new-session -d -swork -x120 -y40");
     assert_contains(&log, "rename-window -twork:1 editor");
     assert_contains(&log, "send-keys -twork:1.0 builtin cd \"/tmp/work\"");
@@ -276,7 +276,7 @@ impl InteractiveEnv {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "retmux-interactive-flows-{label}-{}-{unique}",
+            "remux-interactive-flows-{label}-{}-{unique}",
             std::process::id()
         ));
 
@@ -303,7 +303,7 @@ impl InteractiveEnv {
 
     fn write_config(&self) {
         let paths = self.config_paths();
-        fs::create_dir_all(&paths.user_path).expect("should create ~/.retmux");
+        fs::create_dir_all(&paths.user_path).expect("should create ~/.remux");
         fs::write(
             &paths.config_file,
             "[settings]\nlog.level.file = INFO\nlog.level.console = INFO\ncontent.with.escape = true\n",
@@ -393,13 +393,13 @@ impl InteractiveEnv {
     }
 
     fn run_binary_with_stdin(&self, args: &[&str], stdin_payload: &str) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_retmux"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_remux"));
         command
             .args(args)
             .env("HOME", &self.home)
             .env("PATH", &self.bin_dir)
-            .env("RETMUX_FAKE_LOG", &self.fake_log)
-            .env("RETMUX_FAKE_STATE", &self.fake_state)
+            .env("REMUX_FAKE_LOG", &self.fake_log)
+            .env("REMUX_FAKE_STATE", &self.fake_state)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -486,11 +486,11 @@ fn restore_snapshot_json(backup_id: &str) -> String {
 const FAKE_TMUX_SCRIPT: &str = r#"#!/bin/zsh
 set -eu
 
-log_path="${RETMUX_FAKE_LOG:-}"
-state_path="${RETMUX_FAKE_STATE:-}"
+log_path="${REMUX_FAKE_LOG:-}"
+state_path="${REMUX_FAKE_STATE:-}"
 
 if [[ -z "$state_path" ]]; then
-  print -r -- 'RETMUX_FAKE_STATE is required' >&2
+  print -r -- 'REMUX_FAKE_STATE is required' >&2
   exit 1
 fi
 

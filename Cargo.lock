@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "retmux"
+name = "remux"
 version = "0.1.0"
 dependencies = [
  "serde",

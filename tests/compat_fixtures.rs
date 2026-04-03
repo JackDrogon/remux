@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use retmux::serde_legacy;
+use remux::serde_legacy;
 
 const FIXTURES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/legacy");
 const REQUIRED_JSON_MARKERS: [&str; 2] = ["\"__class__\"", "\"__module__\""];
@@ -171,7 +171,7 @@ fn rust_decodes_python_snapshot_fixture() {
 #[test]
 fn corrupt_fixture_shape_is_rejected() {
     let temp_root = std::env::temp_dir().join(format!(
-        "retmux-corrupt-fixture-{}-{}",
+        "remux-corrupt-fixture-{}-{}",
         std::process::id(),
         std::thread::current().name().unwrap_or("compat")
     ));

@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::RuntimeConfig;
-use retmux::error::SubprocessError;
-use retmux::tmux::{TmuxAdapter, TmuxCommand};
+use remux::config::RuntimeConfig;
+use remux::error::SubprocessError;
+use remux::tmux::{TmuxAdapter, TmuxCommand};
 
 #[test]
 fn socket_prefix_is_inserted() {
@@ -145,7 +145,7 @@ fn unique_missing_binary() -> String {
         .expect("system time should be after UNIX_EPOCH")
         .as_nanos();
     let path = std::env::temp_dir().join(format!(
-        "retmux-missing-tmux-{}-{unique}",
+        "remux-missing-tmux-{}-{unique}",
         std::process::id()
     ));
     if path.exists() {
@@ -165,7 +165,7 @@ impl TempHome {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "retmux-tmux-adapter-{label}-{}-{unique}",
+            "remux-tmux-adapter-{label}-{}-{unique}",
             std::process::id()
         ));
 

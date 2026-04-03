@@ -10,9 +10,9 @@ pub mod restore;
 pub mod serde_legacy;
 pub mod tmux;
 
-pub const BINARY_NAME: &str = "retmux";
-pub const LEGACY_HOME_DIR: &str = ".retmux";
-pub const LEGACY_CONFIG_FILE: &str = "retmux.conf";
+pub const BINARY_NAME: &str = "remux";
+pub const HOME_DIR_NAME: &str = ".remux";
+pub const CONFIG_FILE_NAME: &str = "remux.conf";
 
 pub fn binary_name() -> &'static str {
     BINARY_NAME

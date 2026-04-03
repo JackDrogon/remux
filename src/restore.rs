@@ -421,5 +421,5 @@ fn generate_dummy_session_name() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("retmux_dummy_{}_{}", std::process::id(), stamp)
+    format!("remux_dummy_{}_{}", std::process::id(), stamp)
 }

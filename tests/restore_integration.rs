@@ -3,8 +3,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retmux::restore::{resolve_backup_name, restore_from_path_with_adapter};
-use retmux::tmux::TmuxAdapter;
+use remux::restore::{resolve_backup_name, restore_from_path_with_adapter};
+use remux::tmux::TmuxAdapter;
 
 const FIXTURES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/legacy");
 
@@ -40,8 +40,8 @@ fn restores_latest_backup_when_name_missing() {
         .expect("restore should succeed for latest backup");
 
     let log = sandbox.read_log();
-    assert_contains(&log, "new-session -d -sretmux_dummy_");
-    assert_contains(&log, "kill-session -tretmux_dummy_");
+    assert_contains(&log, "new-session -d -sremux_dummy_");
+    assert_contains(&log, "kill-session -tremux_dummy_");
     assert_contains(&log, "new-session -d -salpha -x140 -y45");
     assert_contains(&log, "rename-window -talpha:3 editor");
     assert_contains(&log, "rename-window -talpha:1 shell");
@@ -149,7 +149,7 @@ fn missing_pane_file_fails_fast_before_tmux_mutation() {
         "list-sessions -F#S:=:(#{window_width},#{window_height}):=:#{session_attached}",
     );
     assert!(
-        !log.contains("new-session -d -sretmux_dummy_"),
+        !log.contains("new-session -d -sremux_dummy_"),
         "missing pane content should fail before creating a dummy session; log was:\n{log}"
     );
     assert!(
@@ -422,7 +422,7 @@ impl RestoreSandbox {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "retmux-restore-integration-{label}-{}-{unique}",
+            "remux-restore-integration-{label}-{}-{unique}",
             std::process::id()
         ));
 

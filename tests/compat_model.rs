@@ -1,5 +1,5 @@
-use retmux::model::{Pane, Session, Size, Tmux, Window};
-use retmux::serde_legacy::{self, LegacySnapshotError};
+use remux::model::{Pane, Session, Size, Tmux, Window};
+use remux::serde_legacy::{self, LegacySnapshotError};
 
 const DEFAULT_FIXTURE_JSON: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),

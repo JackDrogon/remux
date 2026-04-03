@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(retmux::run(std::env::args()));
+    std::process::exit(remux::run(std::env::args()));
 }

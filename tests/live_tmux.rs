@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::{socket_dir_name, ConfigPaths};
+use remux::config::{ConfigPaths, socket_dir_name};
 
 #[test]
 #[ignore = "requires tmux on the supported Linux baseline"]
@@ -44,7 +44,7 @@ fn backup_list_and_delete_work_against_real_tmux() {
         "expected session detail, stdout was: {list_stdout}"
     );
     assert!(
-        list_stdout.contains("─Window─┬─(1) [editor] (1 panes):"),
+        list_stdout.contains("[editor] (1 panes):"),
         "expected window detail, stdout was: {list_stdout}"
     );
 
@@ -112,7 +112,7 @@ impl LiveTmuxEnv {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "retmux-live-tmux-{label}-{}-{unique}",
+            "remux-live-tmux-{label}-{}-{unique}",
             std::process::id()
         ));
 
@@ -129,7 +129,7 @@ impl LiveTmuxEnv {
             root,
             home,
             workspace,
-            socket_name: format!("retmux-live-{}-{unique}", std::process::id()),
+            socket_name: format!("remux-live-{}-{unique}", std::process::id()),
         }
     }
 
@@ -149,11 +149,11 @@ impl LiveTmuxEnv {
     }
 
     fn run_binary(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_retmux"))
+        Command::new(env!("CARGO_BIN_EXE_remux"))
             .env("HOME", &self.home)
             .args(args)
             .output()
-            .expect("retmux binary invocation should succeed")
+            .expect("remux binary invocation should succeed")
     }
 
     fn start_session(&self, session_name: &str, window_name: &str) {

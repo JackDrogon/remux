@@ -1,12 +1,12 @@
 use std::process::Command;
 
-use retmux::cli::{Action, CliError, parse_cli_args};
+use remux::cli::{Action, CliError, parse_cli_args};
 
 #[test]
 fn socket_can_appear_before_or_after_action() {
-    let before = parse_cli_args(["retmux", "-L", "sockA", "-b", "backup_20240101_120000"])
+    let before = parse_cli_args(["remux", "-L", "sockA", "-b", "backup_20240101_120000"])
         .expect("socket before action should parse");
-    let after = parse_cli_args(["retmux", "-b", "backup_20240101_120000", "-L", "sockA"])
+    let after = parse_cli_args(["remux", "-b", "backup_20240101_120000", "-L", "sockA"])
         .expect("socket after action should parse");
 
     assert_eq!(before.socket_name.as_deref(), Some("sockA"));
@@ -17,7 +17,7 @@ fn socket_can_appear_before_or_after_action() {
 
 #[test]
 fn missing_socket_value_is_rejected() {
-    let error = parse_cli_args(["retmux", "-L"]).unwrap_err();
+    let error = parse_cli_args(["remux", "-L"]).unwrap_err();
 
     assert_eq!(error, CliError::MissingSocketName);
 }
@@ -25,22 +25,22 @@ fn missing_socket_value_is_rejected() {
 #[test]
 fn too_many_args_or_invalid_shape_are_rejected() {
     assert_eq!(
-        parse_cli_args(["retmux", "-b", "backup", "extra"]).unwrap_err(),
+        parse_cli_args(["remux", "-b", "backup", "extra"]).unwrap_err(),
         CliError::TooManyArguments
     );
     assert_eq!(
-        parse_cli_args(["retmux", "--wat"]).unwrap_err(),
+        parse_cli_args(["remux", "--wat"]).unwrap_err(),
         CliError::UnknownAction("--wat".to_string())
     );
     assert_eq!(
-        parse_cli_args(["retmux"]).unwrap_err(),
+        parse_cli_args(["remux"]).unwrap_err(),
         CliError::MissingAction
     );
 }
 
 #[test]
 fn invalid_argument_shapes_exit_nonzero() {
-    let binary = env!("CARGO_BIN_EXE_retmux");
+    let binary = env!("CARGO_BIN_EXE_remux");
     let cases: Vec<Vec<&str>> = vec![vec!["-L"], vec!["-b", "backup", "extra"], vec!["--wat"]];
 
     for args in cases {

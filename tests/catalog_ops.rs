@@ -4,10 +4,10 @@ use std::process::{Command, Output};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retmux::catalog;
-use retmux::config::RuntimeConfig;
-use retmux::model::{Pane, Session, Size, Tmux, Window};
-use retmux::serde_legacy;
+use remux::catalog;
+use remux::config::RuntimeConfig;
+use remux::model::{Pane, Session, Size, Tmux, Window};
+use remux::serde_legacy;
 
 #[test]
 fn named_socket_listing_is_isolated() {
@@ -284,11 +284,11 @@ fn write_backup(
 }
 
 fn run_binary<const N: usize>(home_dir: &Path, args: [&str; N]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_retmux"))
+    Command::new(env!("CARGO_BIN_EXE_remux"))
         .env("HOME", home_dir)
         .args(args)
         .output()
-        .expect("retmux binary invocation should succeed")
+        .expect("remux binary invocation should succeed")
 }
 
 #[derive(Debug)]
@@ -303,7 +303,7 @@ impl TempHome {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "retmux-catalog-ops-{label}-{}-{unique}",
+            "remux-catalog-ops-{label}-{}-{unique}",
             std::process::id()
         ));
 

@@ -1,8 +1,7 @@
-# retmux
+# remux
 
-`retmux` is a Rust tmux session backup and restore tool. This repository ships the `retmux` binary,
-keeps the legacy CLI surface, and preserves the on-disk backup layout under `~/.retmux/` so existing
-backups remain usable.
+`remux` is a Rust tmux session backup and restore tool. This repository ships the `remux` binary
+and stores backups under `~/.remux/` by default.
 
 ## Supported baseline
 
@@ -16,31 +15,31 @@ The supported developer and release-facing entrypoints are intentionally minimal
 
 ```bash
 cargo build
-cargo run --bin retmux -- -h
-cargo install --path . --bin retmux --locked
+cargo run --bin remux -- -h
+cargo install --path . --bin remux --locked
 ```
 
-After installation, the binary is available as `retmux`.
+After installation, the binary is available as `remux`.
 
 ## Usage
 
 ```bash
-retmux -b
-retmux -l
-retmux -r
-retmux -L sockA -b backup_20240101_120000
+remux -b
+remux -l
+remux -r
+remux -L sockA -b backup_20240101_120000
 ```
 
-Backups are written to `~/.retmux/backup` by default. When `-L <socket-name>` is active, retmux
-isolates data under `~/.retmux/backup-sockets/<sanitized-socket-name>`.
+Backups are written to `~/.remux/backup` by default. When `-L <socket-name>` is active, remux
+isolates data under `~/.remux/backup-sockets/<sanitized-socket-name>`.
 
-## What retmux stores
+## What remux stores
 
 - tmux sessions, including session names and terminal sizes
 - windows, including order, names, and layouts
 - panes, including working directories and captured content history
 
-## What retmux does not restore
+## What remux does not restore
 
 - the original running processes inside panes
 - shell history for each pane
@@ -69,7 +68,7 @@ and `tmux` locally if you want `just check` and CI-equivalent verification to pa
 ```text
 .github/workflows/ci.yml   Linux CI with tmux-backed integration coverage
 assets/                    Default config assets bundled into the binary
-src/                       retmux library and binary entrypoint
+src/                       remux library and binary entrypoint
 tests/                     Compatibility, CLI, restore, and live tmux integration tests
 ref/retmux/                Reference implementation used for compatibility guidance
 ```

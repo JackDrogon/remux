@@ -5,11 +5,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::{LEGACY_CONFIG_FILE, LEGACY_HOME_DIR};
+use crate::{CONFIG_FILE_NAME, HOME_DIR_NAME};
 
-pub const LEGACY_BACKUP_DIR: &str = "backup";
-pub const LEGACY_BACKUP_SOCKET_DIR: &str = "backup-sockets";
-pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../assets/retmux.default.conf");
+pub const BACKUP_DIR: &str = "backup";
+pub const BACKUP_SOCKET_DIR: &str = "backup-sockets";
+pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../assets/remux.default.conf");
 
 const DEFAULT_LOG_LEVEL: &str = "INFO";
 const SETTINGS_SECTION: &str = "settings";
@@ -37,10 +37,10 @@ impl ConfigPaths {
     where
         P: AsRef<Path>,
     {
-        let user_path = home_dir.as_ref().join(LEGACY_HOME_DIR);
-        let backup_root = user_path.join(LEGACY_BACKUP_DIR);
-        let backup_socket_root = user_path.join(LEGACY_BACKUP_SOCKET_DIR);
-        let config_file = user_path.join(LEGACY_CONFIG_FILE);
+        let user_path = home_dir.as_ref().join(HOME_DIR_NAME);
+        let backup_root = user_path.join(BACKUP_DIR);
+        let backup_socket_root = user_path.join(BACKUP_SOCKET_DIR);
+        let config_file = user_path.join(CONFIG_FILE_NAME);
 
         Self {
             user_path,
@@ -166,7 +166,7 @@ pub enum ConfigError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::HomeDirNotFound => write!(f, "HOME is not set; cannot resolve ~/.retmux"),
+            Self::HomeDirNotFound => write!(f, "HOME is not set; cannot resolve ~/.remux"),
             Self::CreateDir { path, source } => {
                 write!(f, "failed to create {}: {source}", path.display())
             }

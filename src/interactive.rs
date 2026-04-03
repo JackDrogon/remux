@@ -106,7 +106,7 @@ where
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &format!("retmux> Delete backup {selected_backup}? [yes|no] "),
+                    &format!("remux> Delete backup {selected_backup}? [yes|no] "),
                 )? {
                     continue;
                 }
@@ -119,7 +119,7 @@ where
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &format!("retmux> restore {selected_backup}? [yes|no] "),
+                    &format!("remux> restore {selected_backup}? [yes|no] "),
                 )? {
                     continue;
                 }
@@ -144,7 +144,7 @@ where
     W: Write,
 {
     loop {
-        write!(output, "retmux> Please give backup No. (press q to exit): ").map_err(io_error)?;
+        write!(output, "remux> Please give backup No. (press q to exit): ").map_err(io_error)?;
         output.flush().map_err(io_error)?;
 
         let Some(line) = read_line(input)? else {

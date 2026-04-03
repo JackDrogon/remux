@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::{ConfigPaths, DEFAULT_CONFIG_TEMPLATE, RuntimeConfig, socket_dir_name};
+use remux::config::{ConfigPaths, DEFAULT_CONFIG_TEMPLATE, RuntimeConfig, socket_dir_name};
 
 #[test]
 fn default_socket_uses_legacy_backup_root() {
@@ -17,7 +17,7 @@ fn default_socket_uses_legacy_backup_root() {
     );
     assert_eq!(
         config.active_backup_path(),
-        temp_home.path().join(".retmux/backup").as_path()
+        temp_home.path().join(".remux/backup").as_path()
     );
     assert_eq!(config.tmux_cmd_prefix(), &[String::from("tmux")]);
 }
@@ -39,7 +39,7 @@ fn named_socket_uses_sanitized_backup_root() {
         config.active_backup_path(),
         temp_home
             .path()
-            .join(".retmux/backup-sockets/custom_socket_name")
+            .join(".remux/backup-sockets/custom_socket_name")
             .as_path()
     );
     assert_eq!(
@@ -64,14 +64,14 @@ fn missing_config_is_bootstrapped() {
     let config = RuntimeConfig::load_from_paths(paths.clone())
         .expect("missing config should be bootstrapped and loaded");
 
-    assert!(paths.user_path.is_dir(), "expected ~/.retmux to be created");
+    assert!(paths.user_path.is_dir(), "expected ~/.remux to be created");
     assert!(
         paths.backup_root.is_dir(),
         "expected backup root to be created"
     );
     assert!(
         paths.config_file.is_file(),
-        "expected retmux.conf to be created"
+        "expected remux.conf to be created"
     );
     assert_eq!(
         fs::read_to_string(&paths.config_file).expect("bootstrapped config should be readable"),
@@ -87,7 +87,7 @@ fn missing_config_is_bootstrapped() {
 fn malformed_config_is_reported() {
     let temp_home = TempHome::new("malformed");
     let paths = ConfigPaths::from_home(temp_home.path());
-    fs::create_dir_all(&paths.user_path).expect("should create ~/.retmux for malformed test");
+    fs::create_dir_all(&paths.user_path).expect("should create ~/.remux for malformed test");
     fs::write(
         &paths.config_file,
         "[settings]\nlog.level.file = INFO\nlog.level.console = INFO\ncontent.with.escape = maybe\n",
@@ -114,7 +114,7 @@ impl TempHome {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "retmux-config-paths-{label}-{}-{unique}",
+            "remux-config-paths-{label}-{}-{unique}",
             std::process::id()
         ));
 

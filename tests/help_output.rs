@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::ConfigPaths;
+use remux::config::ConfigPaths;
 
 #[test]
 fn help_lists_option_inventory_and_config_path() {
@@ -23,7 +23,7 @@ fn help_lists_option_inventory_and_config_path() {
         "-r [name]           restore tmux sessions from backup",
         "-ri                 restore sessions interactively",
         "-L [socket-name]    use the given tmux socket name",
-        "config file: $HOME/.retmux/retmux.conf",
+        "config file: $HOME/.remux/remux.conf",
     ] {
         assert!(
             stdout.contains(expected),
@@ -39,7 +39,7 @@ fn version_output_is_stable_and_bootstraps_config() {
     assert_success(&output, "version output should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, format!("retmux {}\n", env!("CARGO_PKG_VERSION")));
+    assert_eq!(stdout, format!("remux {}\n", env!("CARGO_PKG_VERSION")));
 
     let config_file = ConfigPaths::from_home(temp_home.path()).config_file;
     assert!(
@@ -50,11 +50,11 @@ fn version_output_is_stable_and_bootstraps_config() {
 }
 
 fn run_binary<const N: usize>(home_dir: &Path, args: [&str; N]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_retmux"))
+    Command::new(env!("CARGO_BIN_EXE_remux"))
         .env("HOME", home_dir)
         .args(args)
         .output()
-        .expect("retmux binary invocation should succeed")
+        .expect("remux binary invocation should succeed")
 }
 
 fn assert_success(output: &std::process::Output, context: &str) {
@@ -78,7 +78,7 @@ impl TempHome {
             .expect("system time should be after UNIX_EPOCH")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "retmux-help-output-{label}-{}-{unique}",
+            "remux-help-output-{label}-{}-{unique}",
             std::process::id()
         ));
 

@@ -4,7 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::backup_name::{normalize_backup_name, BackupNameError};
+use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::RuntimeConfig;
 use crate::model::Tmux;
 use crate::serde_legacy::{self, LegacySnapshotError};
@@ -164,7 +164,7 @@ pub fn delete_backup(config: &RuntimeConfig, backup_name: &str) -> Result<(), Ca
 }
 
 pub fn no_backups_message() -> &'static str {
-    "No backup was created yet.\nretmux -b [name] to create backup"
+    "No backup was created yet.\nremux -b [name] to create backup"
 }
 
 pub fn render_summary(backups: &[BackupEntry]) -> String {
