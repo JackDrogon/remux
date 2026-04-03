@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 
+use serde::Deserialize;
 use serde_json::{Map, Number, Value};
 
 use crate::model::{Pane, Session, Size, Tmux, Window};
@@ -107,17 +108,108 @@ impl From<serde_json::Error> for LegacySnapshotError {
     }
 }
 
+enum FastParseError {
+    Legacy(LegacySnapshotError),
+    Serde,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacySummaryTmux {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    tid: String,
+    #[serde(default)]
+    create_time: String,
+    #[serde(default)]
+    sessions: Vec<TypedLegacySummarySession>,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacySummarySession {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacyTmux {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    tid: String,
+    #[serde(default)]
+    create_time: String,
+    #[serde(default)]
+    sessions: Vec<TypedLegacySession>,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacySession {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    name: String,
+    attached: Option<LegacyBoolValue>,
+    #[serde(default)]
+    size: Vec<u32>,
+    #[serde(default)]
+    windows: Vec<TypedLegacyWindow>,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacyWindow {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    win_id: u32,
+    sess_name: String,
+    name: Option<String>,
+    active: Option<LegacyBoolValue>,
+    layout: Option<String>,
+    #[serde(default)]
+    panes: Vec<TypedLegacyPane>,
+}
+
+#[derive(Deserialize)]
+struct TypedLegacyPane {
+    #[serde(rename = "__class__")]
+    legacy_class: Option<String>,
+    #[serde(rename = "__module__")]
+    legacy_module: Option<String>,
+    pane_id: u32,
+    win_id: u32,
+    sess_name: String,
+    #[serde(default)]
+    size: Vec<u32>,
+    path: Option<String>,
+    active: Option<LegacyBoolValue>,
+    cont_file: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LegacyBoolValue {
+    Bool(bool),
+    Number(u8),
+}
+
 pub fn from_reader<R>(reader: R) -> Result<Tmux, LegacySnapshotError>
 where
     R: Read,
 {
-    let value: Value = serde_json::from_reader(reader)?;
-    parse_tmux(&value, "$")
+    let bytes = read_all_bytes(reader)?;
+    from_bytes(&bytes)
 }
 
 pub fn from_str(input: &str) -> Result<Tmux, LegacySnapshotError> {
-    let value: Value = serde_json::from_str(input)?;
-    parse_tmux(&value, "$")
+    from_bytes(input.as_bytes())
 }
 
 pub fn read_snapshot_file<P>(path: P) -> Result<Tmux, LegacySnapshotError>
@@ -126,6 +218,15 @@ where
 {
     let file = File::open(path)?;
     from_reader(file)
+}
+
+pub fn read_snapshot_summary_file<P>(path: P) -> Result<Tmux, LegacySnapshotError>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(path)?;
+    let bytes = read_all_bytes(file)?;
+    summary_from_bytes(&bytes)
 }
 
 pub fn to_string_pretty(tmux: &Tmux) -> Result<String, LegacySnapshotError> {
@@ -150,6 +251,224 @@ where
     }
     let file = File::create(path)?;
     to_writer_pretty(file, tmux)
+}
+
+fn read_all_bytes<R>(mut reader: R) -> Result<Vec<u8>, LegacySnapshotError>
+where
+    R: Read,
+{
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn from_bytes(bytes: &[u8]) -> Result<Tmux, LegacySnapshotError> {
+    match try_parse_full_fast(bytes) {
+        Ok(tmux) => Ok(tmux),
+        Err(FastParseError::Legacy(error)) => Err(error),
+        Err(FastParseError::Serde) => parse_tmux_from_value_bytes(bytes),
+    }
+}
+
+fn summary_from_bytes(bytes: &[u8]) -> Result<Tmux, LegacySnapshotError> {
+    match try_parse_summary_fast(bytes) {
+        Ok(tmux) => Ok(tmux),
+        Err(FastParseError::Legacy(error)) => Err(error),
+        Err(FastParseError::Serde) => summarize_tmux(&from_bytes(bytes)?),
+    }
+}
+
+fn parse_tmux_from_value_bytes(bytes: &[u8]) -> Result<Tmux, LegacySnapshotError> {
+    let value: Value = serde_json::from_slice(bytes)?;
+    parse_tmux(&value, "$")
+}
+
+fn try_parse_summary_fast(bytes: &[u8]) -> Result<Tmux, FastParseError> {
+    let tmux: TypedLegacySummaryTmux =
+        serde_json::from_slice(bytes).map_err(|_| FastParseError::Serde)?;
+    tmux.into_model().map_err(FastParseError::Legacy)
+}
+
+fn try_parse_full_fast(bytes: &[u8]) -> Result<Tmux, FastParseError> {
+    let tmux: TypedLegacyTmux = serde_json::from_slice(bytes).map_err(|_| FastParseError::Serde)?;
+    tmux.into_model().map_err(FastParseError::Legacy)
+}
+
+fn summarize_tmux(tmux: &Tmux) -> Result<Tmux, LegacySnapshotError> {
+    let mut summary = Tmux::new(tmux.tid.clone());
+    summary.create_time = tmux.create_time.clone();
+    summary.sessions = tmux
+        .sessions
+        .iter()
+        .map(|session| Ok(Session::new(session.name.clone())))
+        .collect::<Result<Vec<_>, LegacySnapshotError>>()?;
+    Ok(summary)
+}
+
+impl TypedLegacySummaryTmux {
+    fn into_model(self) -> Result<Tmux, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, "$", "Tmux")?;
+
+        let mut tmux = Tmux::new(self.tid);
+        tmux.create_time = self.create_time;
+        tmux.sessions = self
+            .sessions
+            .into_iter()
+            .enumerate()
+            .map(|(index, session)| session.into_model(&format!("$.sessions[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(tmux)
+    }
+}
+
+impl TypedLegacySummarySession {
+    fn into_model(self, path: &str) -> Result<Session, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, path, "Session")?;
+        Ok(Session::new(self.name))
+    }
+}
+
+impl TypedLegacyTmux {
+    fn into_model(self) -> Result<Tmux, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, "$", "Tmux")?;
+
+        let mut tmux = Tmux::new(self.tid);
+        tmux.create_time = self.create_time;
+        tmux.sessions = self
+            .sessions
+            .into_iter()
+            .enumerate()
+            .map(|(index, session)| session.into_model(&format!("$.sessions[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(tmux)
+    }
+}
+
+impl TypedLegacySession {
+    fn into_model(self, path: &str) -> Result<Session, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, path, "Session")?;
+
+        let mut session = Session::new(self.name);
+        session.attached =
+            parse_fast_optional_bool(self.attached, path, "attached")?.unwrap_or(false);
+        session.size = parse_fast_size(self.size, path, "size")?;
+        session.windows = self
+            .windows
+            .into_iter()
+            .enumerate()
+            .map(|(index, window)| window.into_model(&format!("{path}.windows[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(session)
+    }
+}
+
+impl TypedLegacyWindow {
+    fn into_model(self, path: &str) -> Result<Window, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, path, "Window")?;
+
+        let mut window = Window::new(self.sess_name, self.win_id);
+        if let Some(name) = self.name {
+            window.name = name;
+        }
+        window.active = parse_fast_optional_bool(self.active, path, "active")?.unwrap_or(false);
+        window.layout = self.layout.unwrap_or_default();
+        window.panes = self
+            .panes
+            .into_iter()
+            .enumerate()
+            .map(|(index, pane)| pane.into_model(&format!("{path}.panes[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(window)
+    }
+}
+
+impl TypedLegacyPane {
+    fn into_model(self, path: &str) -> Result<Pane, LegacySnapshotError> {
+        validate_markers_fast(&self.legacy_class, &self.legacy_module, path, "Pane")?;
+
+        let mut pane = Pane::new(self.sess_name, self.win_id, self.pane_id);
+        pane.size = parse_fast_size(self.size, path, "size")?;
+        pane.path = self.path.unwrap_or_else(|| "~".to_string());
+        pane.active = parse_fast_optional_bool(self.active, path, "active")?.unwrap_or(false);
+        pane.cont_file = self.cont_file.unwrap_or_default();
+        Ok(pane)
+    }
+}
+
+fn validate_markers_fast(
+    class_name: &Option<String>,
+    module_name: &Option<String>,
+    path: &str,
+    expected_class: &'static str,
+) -> Result<(), LegacySnapshotError> {
+    let class_name = class_name
+        .as_deref()
+        .ok_or_else(|| LegacySnapshotError::MissingMarker {
+            path: path.to_string(),
+            marker: "__class__",
+        })?;
+
+    if class_name != expected_class {
+        return Err(LegacySnapshotError::UnexpectedClass {
+            path: path.to_string(),
+            expected: expected_class,
+            found: class_name.to_string(),
+        });
+    }
+
+    let module_name = module_name
+        .as_deref()
+        .ok_or_else(|| LegacySnapshotError::MissingMarker {
+            path: path.to_string(),
+            marker: "__module__",
+        })?;
+
+    if module_name != LEGACY_MODULE_NAME {
+        return Err(LegacySnapshotError::UnexpectedModule {
+            path: path.to_string(),
+            expected: LEGACY_MODULE_NAME,
+            found: module_name.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn parse_fast_optional_bool(
+    value: Option<LegacyBoolValue>,
+    path: &str,
+    field: &'static str,
+) -> Result<Option<bool>, LegacySnapshotError> {
+    match value {
+        None => Ok(None),
+        Some(LegacyBoolValue::Bool(value)) => Ok(Some(value)),
+        Some(LegacyBoolValue::Number(0)) => Ok(Some(false)),
+        Some(LegacyBoolValue::Number(1)) => Ok(Some(true)),
+        Some(LegacyBoolValue::Number(_)) => Err(LegacySnapshotError::InvalidFieldType {
+            path: path.to_string(),
+            field,
+            detail: "expected a boolean or 0/1 legacy flag".to_string(),
+        }),
+    }
+}
+
+fn parse_fast_size(
+    size: Vec<u32>,
+    path: &str,
+    field: &'static str,
+) -> Result<Size, LegacySnapshotError> {
+    match size.as_slice() {
+        [] => Ok(Size::empty()),
+        [width, height] => Ok(Size::new(*width, *height)),
+        _ => Err(LegacySnapshotError::InvalidFieldType {
+            path: path.to_string(),
+            field,
+            detail: format!(
+                "expected an empty array or exactly two integers, got {} elements",
+                size.len()
+            ),
+        }),
+    }
 }
 
 fn parse_tmux(value: &Value, path: &str) -> Result<Tmux, LegacySnapshotError> {

@@ -62,8 +62,8 @@ fn named_socket_listing_is_isolated() {
     assert!(detail.status.success(), "named detail failed: {detail:?}");
     let detail_stdout = String::from_utf8_lossy(&detail.stdout);
     assert!(detail_stdout.contains("Details of backup:backup_20240102_120000"));
-    assert!(detail_stdout.contains("Session [ops]"));
-    assert!(detail_stdout.contains("Pane (0) /srv/ops"));
+    assert!(detail_stdout.contains("─Session─┬─[ops] (1 windows):"));
+    assert!(detail_stdout.contains("─Pane (0) /srv/ops"));
 
     let missing_from_active_root = run_binary(
         temp_home.path(),
@@ -203,6 +203,36 @@ fn catalog_named_ops_reuse_normalized_backup_names() {
         !named_dir.exists(),
         "delete should remove the normalized backup directory"
     );
+}
+
+#[test]
+fn named_lookup_reads_only_requested_backup() {
+    let temp_home = TempHome::new("named-direct-load");
+    write_backup(
+        temp_home.path(),
+        Some("sockA"),
+        "backup_good",
+        "ops",
+        "2024-01-02 12:00:00",
+        &["/srv/ops"],
+    );
+
+    let mut config = RuntimeConfig::load_from_home(temp_home.path())
+        .expect("runtime config should load from temp HOME");
+    config.activate_socket(Some("sockA"));
+
+    let broken_dir = config.active_backup_path().join("backup_broken");
+    fs::create_dir_all(&broken_dir).expect("broken backup directory should exist");
+    fs::write(
+        broken_dir.join("backup_broken.json"),
+        r#"{ "__class__": "Tmux", "__module__": "tmuxbk.tmux_obj", "tid": 123 }"#,
+    )
+    .expect("broken snapshot should be written");
+
+    let loaded = catalog::load_backup(&config, "backup_good")
+        .expect("named load should not scan unrelated broken backups");
+    assert_eq!(loaded.id, "backup_good");
+    assert_eq!(loaded.snapshot.sessions[0].name, "ops");
 }
 
 fn write_backup(

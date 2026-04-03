@@ -18,7 +18,34 @@ where
     R: BufRead,
     W: Write,
 {
-    run_flow(config, input, output, FlowMode::Inspect)
+    let backups = catalog::list_backups_for_listing(config).map_err(|error| error.to_string())?;
+    if backups.is_empty() {
+        writeln!(output, "{}", catalog::no_backups_message()).map_err(io_error)?;
+        output.flush().map_err(io_error)?;
+        return Ok(());
+    }
+
+    let mut detail_cache = vec![None; backups.len()];
+
+    loop {
+        writeln!(output, "{}", catalog::render_summary(&backups)).map_err(io_error)?;
+        let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
+        else {
+            return Ok(());
+        };
+
+        if detail_cache[index].is_none() {
+            let detail = catalog::load_backup(config, &backups[index].id)
+                .map_err(|error| error.to_string())?;
+            detail_cache[index] = Some(detail);
+        }
+
+        let detail = detail_cache[index]
+            .as_ref()
+            .expect("interactive list detail cache should be populated");
+
+        writeln!(output, "{}", catalog::render_interactive_detail(detail)).map_err(io_error)?;
+    }
 }
 
 pub fn interactive_delete<R, W>(

@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{BINARY_NAME, backup, catalog, config::RuntimeConfig, interactive, restore};
+use crate::{backup, catalog, config::RuntimeConfig, interactive, restore, BINARY_NAME};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -160,10 +160,7 @@ fn dispatch(args: CliArgs, config: &RuntimeConfig) -> i32 {
             println!("{} {}", BINARY_NAME, env!("CARGO_PKG_VERSION"));
             0
         }
-        Action::List => match args.action_arg.as_deref() {
-            Some(_) => exit_from_result(show_and_action(config, args.action_arg.as_deref())),
-            None => exit_from_result(interactive_list(config)),
-        },
+        Action::List => exit_from_result(show_and_action(config, args.action_arg.as_deref())),
         Action::Delete => match args.action_arg.as_deref() {
             Some(_) => exit_from_result(do_delete(config, args.action_arg.as_deref())),
             None => exit_from_result(interactive_delete(config)),
@@ -192,15 +189,7 @@ fn show_and_action(config: &RuntimeConfig, action_arg: Option<&str>) -> Result<(
             println!("{}", catalog::render_detail(&entry));
             Ok(())
         }
-        None => {
-            let backups = catalog::list_backups(config).map_err(|error| error.to_string())?;
-            if backups.is_empty() {
-                println!("{}", catalog::no_backups_message());
-            } else {
-                println!("{}", catalog::render_summary(&backups));
-            }
-            Ok(())
-        }
+        None => interactive_list(config),
     }
 }
 

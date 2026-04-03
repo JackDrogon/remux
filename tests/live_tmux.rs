@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use retmux::config::{ConfigPaths, socket_dir_name};
+use retmux::config::{socket_dir_name, ConfigPaths};
 
 #[test]
 #[ignore = "requires tmux on the supported Linux baseline"]
@@ -40,11 +40,11 @@ fn backup_list_and_delete_work_against_real_tmux() {
         "expected detail header, stdout was: {list_stdout}"
     );
     assert!(
-        list_stdout.contains("Session [work]"),
+        list_stdout.contains("─Session─┬─[work] (1 windows):"),
         "expected session detail, stdout was: {list_stdout}"
     );
     assert!(
-        list_stdout.contains("[editor]"),
+        list_stdout.contains("─Window─┬─(1) [editor] (1 panes):"),
         "expected window detail, stdout was: {list_stdout}"
     );
 

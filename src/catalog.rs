@@ -4,12 +4,25 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::backup_name::{BackupNameError, normalize_backup_name};
+use crate::backup_name::{normalize_backup_name, BackupNameError};
 use crate::config::RuntimeConfig;
 use crate::model::Tmux;
 use crate::serde_legacy::{self, LegacySnapshotError};
 
 const LIST_WIDTH: usize = 72;
+const TREE_SPACE: &str = "        ";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackupSortOrder {
+    ModifiedAtDesc,
+    BackupIdDesc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotLoadMode {
+    Full,
+    Summary,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupEntry {
@@ -101,7 +114,19 @@ impl std::error::Error for CatalogError {
 }
 
 pub fn list_backups(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
-    list_backups_in_root(config.active_backup_path())
+    list_backups_in_root(
+        config.active_backup_path(),
+        BackupSortOrder::ModifiedAtDesc,
+        SnapshotLoadMode::Full,
+    )
+}
+
+pub fn list_backups_for_listing(config: &RuntimeConfig) -> Result<Vec<BackupEntry>, CatalogError> {
+    list_backups_in_root(
+        config.active_backup_path(),
+        BackupSortOrder::BackupIdDesc,
+        SnapshotLoadMode::Summary,
+    )
 }
 
 pub fn load_backup(config: &RuntimeConfig, backup_name: &str) -> Result<BackupEntry, CatalogError> {
@@ -109,13 +134,7 @@ pub fn load_backup(config: &RuntimeConfig, backup_name: &str) -> Result<BackupEn
         normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
     let root = config.active_backup_path().to_path_buf();
 
-    list_backups(config)?
-        .into_iter()
-        .find(|entry| entry.id == normalized_name)
-        .ok_or_else(|| CatalogError::MissingBackupName {
-            name: normalized_name.clone(),
-            root,
-        })
+    read_backup_entry_in_root(&root, &normalized_name)
 }
 
 pub fn latest_backup(config: &RuntimeConfig) -> Result<BackupEntry, CatalogError> {
@@ -173,32 +192,69 @@ pub fn render_summary(backups: &[BackupEntry]) -> String {
 }
 
 pub fn render_detail(entry: &BackupEntry) -> String {
-    let tmux = &entry.snapshot;
-    let mut lines = vec![
-        format!("Details of backup:{}", entry.id),
+    format!(
+        "Details of backup:{}\n{}\n{}",
+        entry.id,
         repeat_line('='),
-        format!(
-            "{:>LIST_WIDTH$}",
-            format!("Backup was created on {}", tmux.create_time)
-        ),
-        format!("Backup [{}] ({} sessions):", tmux.tid, tmux.sessions.len()),
-    ];
+        render_detail_body(&entry.snapshot)
+    )
+}
 
-    for session in &tmux.sessions {
-        lines.push(format!(
-            "  Session [{}] ({} windows):",
+pub fn render_interactive_detail(entry: &BackupEntry) -> String {
+    format!(
+        "{}\nDetails of backup:{}\n{}\n{}\n{}",
+        repeat_line('>'),
+        entry.id,
+        repeat_line('>'),
+        render_detail_body(&entry.snapshot),
+        repeat_line('<')
+    )
+}
+
+fn render_detail_body(tmux: &Tmux) -> String {
+    let mut lines = vec![format!(
+        "{:>LIST_WIDTH$}",
+        format!("Backup was created on {}", tmux.create_time)
+    )];
+    lines.push(format!(
+        " Backup─┬─[{}] ({} sessions):",
+        tmux.tid,
+        tmux.sessions.len()
+    ));
+
+    for (session_index, session) in tmux.sessions.iter().enumerate() {
+        let is_last_session = session_index + 1 == tmux.sessions.len();
+        let session_text = format!(
+            "─Session─┬─[{}] ({} windows):",
             session.name,
             session.windows.len()
-        ));
-        for window in &session.windows {
-            lines.push(format!(
-                "    Window ({}) [{}] ({} panes):",
+        );
+        lines.push(tree_struc(session_text, &[is_last_session], 1, false));
+
+        for (window_index, window) in session.windows.iter().enumerate() {
+            let is_last_window = window_index + 1 == session.windows.len();
+            let window_text = format!(
+                "─Window─┬─({}) [{}] ({} panes):",
                 window.win_id,
                 window.name,
                 window.panes.len()
+            );
+            lines.push(tree_struc(
+                window_text,
+                &[is_last_session, is_last_window],
+                2,
+                false,
             ));
-            for pane in &window.panes {
-                lines.push(format!("      Pane ({}) {}", pane.pane_id, pane.path));
+
+            for (pane_index, pane) in window.panes.iter().enumerate() {
+                let is_last_pane = pane_index + 1 == window.panes.len();
+                let pane_text = format!("─Pane ({}) {}", pane.pane_id, pane.path);
+                lines.push(tree_struc(
+                    pane_text,
+                    &[is_last_session, is_last_window, is_last_pane],
+                    3,
+                    false,
+                ));
             }
         }
     }
@@ -206,7 +262,11 @@ pub fn render_detail(entry: &BackupEntry) -> String {
     lines.join("\n")
 }
 
-fn list_backups_in_root(root: &Path) -> Result<Vec<BackupEntry>, CatalogError> {
+fn list_backups_in_root(
+    root: &Path,
+    sort_order: BackupSortOrder,
+    load_mode: SnapshotLoadMode,
+) -> Result<Vec<BackupEntry>, CatalogError> {
     if !root.is_dir() {
         return Ok(Vec::new());
     }
@@ -234,42 +294,106 @@ fn list_backups_in_root(root: &Path) -> Result<Vec<BackupEntry>, CatalogError> {
         }
 
         let backup_id = entry.file_name().to_string_lossy().into_owned();
-        let snapshot_path = path.join(format!("{backup_id}.json"));
-        let snapshot = serde_legacy::read_snapshot_file(&snapshot_path).map_err(|source| {
-            CatalogError::ReadSnapshot {
-                path: snapshot_path,
-                source,
-            }
-        })?;
+        backups.push(read_backup_entry(path, backup_id, metadata, load_mode)?);
+    }
 
-        let modified_at = metadata
-            .modified()
-            .map_err(|source| CatalogError::ReadMetadata {
-                path: path.clone(),
-                source,
-            })?
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
+    match sort_order {
+        BackupSortOrder::ModifiedAtDesc => backups.sort_by(|left, right| {
+            right
+                .modified_at
+                .cmp(&left.modified_at)
+                .then_with(|| right.id.cmp(&left.id))
+        }),
+        BackupSortOrder::BackupIdDesc => backups.sort_by(|left, right| right.id.cmp(&left.id)),
+    }
 
-        backups.push(BackupEntry {
-            id: backup_id,
-            path,
-            modified_at,
-            snapshot,
+    Ok(backups)
+}
+
+fn read_backup_entry_in_root(root: &Path, backup_id: &str) -> Result<BackupEntry, CatalogError> {
+    let path = root.join(backup_id);
+    let metadata = fs::metadata(&path).map_err(|source| match source.kind() {
+        io::ErrorKind::NotFound => CatalogError::MissingBackupName {
+            name: backup_id.to_string(),
+            root: root.to_path_buf(),
+        },
+        _ => CatalogError::ReadMetadata {
+            path: path.clone(),
+            source,
+        },
+    })?;
+
+    if !metadata.is_dir() {
+        return Err(CatalogError::MissingBackupName {
+            name: backup_id.to_string(),
+            root: root.to_path_buf(),
         });
     }
 
-    backups.sort_by(|left, right| {
-        right
-            .modified_at
-            .cmp(&left.modified_at)
-            .then_with(|| right.id.cmp(&left.id))
-    });
-    Ok(backups)
+    read_backup_entry(
+        path,
+        backup_id.to_string(),
+        metadata,
+        SnapshotLoadMode::Full,
+    )
+}
+
+fn read_backup_entry(
+    path: PathBuf,
+    backup_id: String,
+    metadata: fs::Metadata,
+    load_mode: SnapshotLoadMode,
+) -> Result<BackupEntry, CatalogError> {
+    let snapshot_path = path.join(format!("{backup_id}.json"));
+    let snapshot = match load_mode {
+        SnapshotLoadMode::Full => serde_legacy::read_snapshot_file(&snapshot_path),
+        SnapshotLoadMode::Summary => serde_legacy::read_snapshot_summary_file(&snapshot_path),
+    }
+    .map_err(|source| CatalogError::ReadSnapshot {
+        path: snapshot_path,
+        source,
+    })?;
+
+    let modified_at = metadata
+        .modified()
+        .map_err(|source| CatalogError::ReadMetadata {
+            path: path.clone(),
+            source,
+        })?
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+
+    Ok(BackupEntry {
+        id: backup_id,
+        path,
+        modified_at,
+        snapshot,
+    })
 }
 
 fn repeat_line(ch: char) -> String {
     ch.to_string().repeat(LIST_WIDTH)
+}
+
+fn tree_struc(text: String, is_last_list: &[bool], lvl: usize, place_holder: bool) -> String {
+    if lvl == 0 {
+        return text;
+    }
+
+    let current_level = lvl - 1;
+    let mut line = if is_last_list[current_level] {
+        let node = if place_holder { ' ' } else { '└' };
+        format!("{TREE_SPACE}{node}{text}")
+    } else {
+        let node = if place_holder { '│' } else { '├' };
+        format!("{TREE_SPACE}{node}{text}")
+    };
+
+    if current_level == 1 {
+        line = format!(" {line}");
+    }
+
+    tree_struc(line, is_last_list, current_level, true)
 }
 
 fn format_short_info(tmux: &Tmux) -> String {

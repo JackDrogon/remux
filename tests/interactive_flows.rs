@@ -34,8 +34,52 @@ fn interactive_list_without_arg_shows_details_until_quit() {
         "expected selected backup details, stdout was: {stdout}"
     );
     assert!(
-        stdout.contains("Pane (0) /tmp/work"),
+        stdout.contains("Backup─┬─[backup_20240101_120000] (1 sessions):"),
+        "expected python-style backup tree output, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("─Session─┬─[work] (1 windows):"),
+        "expected python-style session tree output, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("─Pane (0) /tmp/work"),
         "expected pane detail output, stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn interactive_list_orders_backups_by_backup_id_desc_like_python() {
+    let env = InteractiveEnv::new("interactive-list-order");
+    env.write_config();
+    env.write_model_backup(
+        None,
+        "backup_20240103_120000",
+        "latest-by-name",
+        "2024-01-03 12:00:00",
+        &["/tmp/name-latest"],
+    );
+    env.write_model_backup(
+        None,
+        "backup_20240101_120000",
+        "oldest-by-name",
+        "2024-01-01 12:00:00",
+        &["/tmp/name-oldest"],
+    );
+    env.write_model_backup(
+        None,
+        "backup_20240102_120000",
+        "middle-by-name",
+        "2024-01-02 12:00:00",
+        &["/tmp/name-middle"],
+    );
+
+    let output = env.run_binary_with_stdin(&["-l"], "1\nq\n");
+    assert_success(&output, "interactive list should order backups like python");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Details of backup:backup_20240103_120000"),
+        "expected list index 1 to resolve to lexicographically latest backup id, stdout was: {stdout}"
     );
 }
 

@@ -161,6 +161,17 @@ fn legacy_numeric_active_flags_are_accepted() {
 }
 
 #[test]
+fn summary_reader_extracts_list_fields_without_full_tree() {
+    let snapshot = serde_legacy::read_snapshot_summary_file(DEFAULT_FIXTURE_JSON).unwrap();
+
+    assert_eq!(snapshot.tid, "backup_20240101_120000");
+    assert_eq!(snapshot.create_time, "2024-01-01 12:00:00");
+    assert_eq!(snapshot.sessions.len(), 1);
+    assert_eq!(snapshot.sessions[0].name, "work");
+    assert!(snapshot.sessions[0].windows.is_empty());
+}
+
+#[test]
 fn rust_round_trip_preserves_legacy_keys() {
     let mut tmux = Tmux::new("backup_20240403_101010");
     tmux.create_time = "2024-04-03 10:10:10".to_string();
