@@ -64,7 +64,7 @@ where
         }
 
         writeln!(output, "{}", catalog::render_summary(&backups)).map_err(io_error)?;
-        let Some(index) = prompt_for_backup_index(input, output, backups.len())? else {
+        let Some(index) = prompt_for_backup_index(input, output, backups.len(), mode)? else {
             return Ok(());
         };
 
@@ -110,6 +110,7 @@ fn prompt_for_backup_index<R, W>(
     input: &mut R,
     output: &mut W,
     backup_count: usize,
+    mode: FlowMode,
 ) -> Result<Option<usize>, String>
 where
     R: BufRead,
@@ -120,7 +121,12 @@ where
         output.flush().map_err(io_error)?;
 
         let Some(line) = read_line(input)? else {
-            return Err("end of input while reading backup selection".to_string());
+            return match mode {
+                FlowMode::Inspect => Ok(None),
+                FlowMode::Delete | FlowMode::Restore => {
+                    Err("end of input while reading backup selection".to_string())
+                }
+            };
         };
         let trimmed = line.trim();
 

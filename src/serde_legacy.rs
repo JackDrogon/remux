@@ -310,16 +310,21 @@ fn get_optional_bool(
 ) -> Result<Option<bool>, LegacySnapshotError> {
     match object.get(field) {
         None => Ok(None),
-        Some(value) => {
-            value
-                .as_bool()
-                .map(Some)
-                .ok_or_else(|| LegacySnapshotError::InvalidFieldType {
-                    path: path.to_string(),
-                    field,
-                    detail: "expected a boolean".to_string(),
-                })
-        }
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(Value::Number(value)) => match value.as_u64() {
+            Some(0) => Ok(Some(false)),
+            Some(1) => Ok(Some(true)),
+            _ => Err(LegacySnapshotError::InvalidFieldType {
+                path: path.to_string(),
+                field,
+                detail: "expected a boolean or 0/1 legacy flag".to_string(),
+            }),
+        },
+        Some(_) => Err(LegacySnapshotError::InvalidFieldType {
+            path: path.to_string(),
+            field,
+            detail: "expected a boolean or 0/1 legacy flag".to_string(),
+        }),
     }
 }
 

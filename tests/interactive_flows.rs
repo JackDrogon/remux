@@ -40,6 +40,41 @@ fn interactive_list_without_arg_shows_details_until_quit() {
 }
 
 #[test]
+fn interactive_list_without_input_returns_summary_successfully() {
+    let env = InteractiveEnv::new("interactive-list-eof");
+    env.write_config();
+    env.write_model_backup(
+        None,
+        "backup_20240101_120000",
+        "work",
+        "2024-01-01 12:00:00",
+        &["/tmp/work"],
+    );
+
+    let output = env.run_binary_with_stdin(&["-l"], "");
+    assert_success(
+        &output,
+        "interactive list should allow EOF after printing summary",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("backup_20240101_120000"),
+        "expected backup summary to be printed, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("retmux> Please give backup No. (press q to exit):"),
+        "expected prompt to still be shown before EOF exit, stdout was: {stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.trim().is_empty(),
+        "expected no stderr when list exits on EOF, stderr was: {stderr}"
+    );
+}
+
+#[test]
 fn interactive_delete_without_arg_confirms_before_deleting() {
     let env = InteractiveEnv::new("interactive-delete");
     env.write_config();

@@ -118,6 +118,49 @@ fn malformed_legacy_snapshot_is_rejected() {
 }
 
 #[test]
+fn legacy_numeric_active_flags_are_accepted() {
+    let snapshot = r#"
+    {
+      "__class__": "Tmux",
+      "__module__": "tmuxbk.tmux_obj",
+      "tid": "backup_20240101_120000",
+      "sessions": [
+        {
+          "__class__": "Session",
+          "__module__": "tmuxbk.tmux_obj",
+          "name": "work",
+          "windows": [
+            {
+              "__class__": "Window",
+              "__module__": "tmuxbk.tmux_obj",
+              "sess_name": "work",
+              "win_id": 1,
+              "active": 1,
+              "panes": [
+                {
+                  "__class__": "Pane",
+                  "__module__": "tmuxbk.tmux_obj",
+                  "sess_name": "work",
+                  "win_id": 1,
+                  "pane_id": 0,
+                  "active": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+    "#;
+
+    let decoded = serde_legacy::from_str(snapshot).unwrap();
+    let window = &decoded.sessions[0].windows[0];
+
+    assert!(window.active);
+    assert!(!window.panes[0].active);
+}
+
+#[test]
 fn rust_round_trip_preserves_legacy_keys() {
     let mut tmux = Tmux::new("backup_20240403_101010");
     tmux.create_time = "2024-04-03 10:10:10".to_string();
