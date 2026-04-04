@@ -2,6 +2,7 @@
 
 ## SOURCE STRUCTURE
 - `main.rs` / `cli.rs`: CLI argument parsing and high-level routing.
+- `actions/`: CLI action implementations such as backup, restore, and interactive flows.
 - `lib.rs`: Public API facade for integration testing.
 - `model.rs`: Pure data structures (Session -> Window -> Pane).
 - `backup_name.rs`: Centralized validation for backup identifiers.
@@ -10,8 +11,8 @@
 - **Tmux Interaction** (`tmux.rs`): Mandatory adapter layer. Uses custom format strings (`:=:`) for deterministic output. Handles raw process bytes to avoid encoding-related data loss.
 - **Persistence** (`snapshot.rs`): Dual-file JSON storage (`summary.json`, `manifest.json`). Must maintain Python-style `__class__` markers for legacy compatibility and handle optional JSON fields like `Window.name`.
 - **Business Logic**:
-    - `backup.rs`: State capture (raw bytes for pane content). Groups sessions and captures terminal dimensions.
-    - `restore.rs`: Sequential replay (renumbering, base-index probing). Rebuilds layouts using tmux-native strings.
+    - `actions/backup.rs`: State capture (raw bytes for pane content). Groups sessions and captures terminal dimensions.
+    - `actions/restore.rs`: Sequential replay (renumbering, base-index probing). Rebuilds layouts using tmux-native strings.
     - `catalog.rs`: Catalog lifecycle and isolation. Sorting by `mtime desc` then `id desc`.
 - **Config** (`config/`): Path derivation (`AppState::active_backup_path`). Handles socket-dir sanitization (`[^A-Za-z0-9_.-] -> _`).
 
@@ -20,7 +21,7 @@
     - **Session**: High-level grouping, tracks active window.
     - **Window**: Tracks order, layout, and child panes.
     - **Pane**: Tracks working directory, history content, and TTY state.
-- `interactive.rs`: Reloads catalog on every loop iteration to keep state fresh.
+- `actions/interactive.rs`: Reloads catalog on every loop iteration to keep state fresh.
 - `backup_name.rs`: Centralized regex validation for custom backup IDs.
 
 ## CONVENTIONS

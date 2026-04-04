@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::restore::restore_from_path_with_adapter;
+use remux::actions::restore::restore_from_path_with_adapter;
 use remux::storage;
 use remux::tmux::TmuxCommand;
 

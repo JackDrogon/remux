@@ -1,12 +1,10 @@
-pub mod backup;
+pub mod actions;
 pub mod backup_name;
 pub mod cli;
 pub mod config;
 pub mod error;
 pub(crate) mod hash;
-pub mod interactive;
 pub mod model;
-pub mod restore;
 pub mod storage;
 pub mod tmux;
 pub mod ui;

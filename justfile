@@ -35,8 +35,8 @@ build:
 
 # Build and run the application
 [group('build')]
-run:
-    cargo run --bin remux
+run *args:
+    cargo run --bin remux {{args}}
 
 # Remove Cargo build artifacts
 [group('build')]

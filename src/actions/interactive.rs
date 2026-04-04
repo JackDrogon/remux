@@ -2,7 +2,7 @@ use std::io::{self, BufRead, Write};
 
 use thiserror::Error;
 
-use crate::{config::AppState, restore, storage, ui};
+use crate::{actions::restore, config::AppState, storage, ui};
 
 #[derive(Debug, Error)]
 pub enum InteractiveError {

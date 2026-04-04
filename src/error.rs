@@ -11,11 +11,11 @@ pub enum AppError {
     #[error(transparent)]
     Config(#[from] crate::config::ConfigError),
     #[error(transparent)]
-    Backup(#[from] crate::backup::BackupError),
+    Backup(#[from] crate::actions::backup::BackupError),
     #[error(transparent)]
-    Restore(#[from] crate::restore::RestoreError),
+    Restore(#[from] crate::actions::restore::RestoreError),
     #[error(transparent)]
     Catalog(#[from] crate::storage::CatalogError),
     #[error(transparent)]
-    Interactive(#[from] crate::interactive::InteractiveError),
+    Interactive(#[from] crate::actions::interactive::InteractiveError),
 }

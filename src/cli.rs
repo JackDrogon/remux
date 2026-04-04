@@ -3,10 +3,11 @@ use std::io;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, error::ErrorKind as ClapErrorKind};
 
 use crate::{
-    BINARY_NAME, backup,
+    BINARY_NAME,
+    actions::{backup, interactive, restore},
     config::{AppState, ExecutionOptions},
     error::{AppError, AppResult},
-    interactive, restore, ui,
+    ui,
 };
 
 const CLI_AFTER_HELP: &str = concat!(
