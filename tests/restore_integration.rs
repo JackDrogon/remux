@@ -181,6 +181,56 @@ fn missing_pane_file_fails_fast_before_tmux_mutation() {
 }
 
 #[test]
+fn tampered_pane_file_fails_fast_before_tmux_mutation() {
+    let sandbox = RestoreSandbox::new("tampered-pane-fast-fail");
+    let backup_root = sandbox.backup_root();
+
+    write_backup(
+        &backup_root,
+        "backup_tampered_pane",
+        latest_snapshot_tmux("backup_tampered_pane"),
+        &[
+            ("alpha:3.0", "session alpha main pane\n"),
+            ("alpha:3.1", "session alpha side pane\n"),
+            ("alpha:1.0", "session alpha shell\n"),
+        ],
+    );
+    fs::write(
+        backup_root
+            .join("backup_tampered_pane")
+            .join("panes")
+            .join("alpha:1.0.txt"),
+        "tampered pane\n",
+    )
+    .expect("one pane file should be tampered to simulate checksum mismatch");
+
+    let adapter = sandbox.adapter_owned();
+    let error = restore_from_path_with_adapter(&backup_root, &adapter, "backup_tampered_pane")
+        .expect_err("tampered pane content must fail before restore starts");
+    let message = error.to_string();
+
+    assert!(
+        message.contains("invalid pane content for alpha:1.0")
+            && (message.contains("expected sha256") || message.contains("expected 20 bytes")),
+        "unexpected tampered-pane restore error: {message}"
+    );
+
+    let log = sandbox.read_log();
+    assert_contains(
+        &log,
+        "list-sessions -F#S:=:(#{window_width},#{window_height}):=:#{session_attached}",
+    );
+    assert!(
+        !log.contains("new-session -d -sremux_dummy_"),
+        "tampered pane content should fail before creating a dummy session; log was:\n{log}"
+    );
+    assert!(
+        !log.contains("new-session -d -salpha"),
+        "tampered pane content should fail before creating restored sessions; log was:\n{log}"
+    );
+}
+
+#[test]
 fn named_restore_resolution_trims_and_rejects_invalid_names() {
     let sandbox = RestoreSandbox::new("normalized-restore-name");
     let backup_root = sandbox.backup_root();
