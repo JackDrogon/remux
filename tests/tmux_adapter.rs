@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppState, ExecutionOptions};
 use remux::error::SubprocessError;
-use remux::tmux::{TmuxAdapter, TmuxCommand};
+use remux::tmux::{TmuxCommand, TmuxRuntimeOptions};
 
 #[test]
 fn socket_prefix_is_inserted() {
@@ -12,7 +12,10 @@ fn socket_prefix_is_inserted() {
     let mut config = AppState::load_from_home(temp_home.path())
         .expect("config bootstrap should succeed for socket-prefix test");
 
-    let default_adapter = TmuxAdapter::new(&config);
+    let default_adapter = TmuxRuntimeOptions::new(&config.config().tmux.binary)
+        .socket_name(config.socket_name())
+        .content_with_escape(config.config().capture.with_escape)
+        .build_adapter();
     assert_eq!(
         default_adapter.render_command(TmuxCommand::HasSession {
             session_name: "demo".to_string(),
@@ -21,7 +24,10 @@ fn socket_prefix_is_inserted() {
     );
 
     config.set_execution_options(ExecutionOptions::with_socket_name(Some("sockA")));
-    let socket_adapter = TmuxAdapter::new(&config);
+    let socket_adapter = TmuxRuntimeOptions::new(&config.config().tmux.binary)
+        .socket_name(config.socket_name())
+        .content_with_escape(config.config().capture.with_escape)
+        .build_adapter();
     assert_eq!(
         socket_adapter.render_command(TmuxCommand::HasSession {
             session_name: "demo".to_string(),
@@ -32,7 +38,9 @@ fn socket_prefix_is_inserted() {
 
 #[test]
 fn rendered_command_templates_match_tmux_shapes() {
-    let adapter = TmuxAdapter::from_prefix(vec!["tmux".to_string()], true);
+    let adapter = TmuxRuntimeOptions::new("tmux")
+        .content_with_escape(true)
+        .build_adapter();
 
     assert_eq!(
         adapter.render_command(TmuxCommand::ListSessions),
@@ -74,6 +82,18 @@ fn rendered_command_templates_match_tmux_shapes() {
         vec!["tmux", "new-session", "-d", "-sdemo", "-x200", "-y60"]
     );
     assert_eq!(
+        adapter.render_command(TmuxCommand::KillSession {
+            session_name: "demo".to_string(),
+        }),
+        vec!["tmux", "kill-session", "-tdemo"]
+    );
+    assert_eq!(
+        adapter.render_command(TmuxCommand::ShowOption {
+            option: "base-index".to_string(),
+        }),
+        vec!["tmux", "show-options", "-gv", "base-index"]
+    );
+    assert_eq!(
         adapter.render_command(TmuxCommand::SplitWindow {
             session_name: "demo".to_string(),
             window_id: 1,
@@ -90,6 +110,35 @@ fn rendered_command_templates_match_tmux_shapes() {
         vec!["tmux", "select-layout", "-tdemo:1", "main-vertical"]
     );
     assert_eq!(
+        adapter.render_command(TmuxCommand::MoveWindow {
+            source: "demo:5".to_string(),
+            target: "demo:1".to_string(),
+        }),
+        vec!["tmux", "move-window", "-sdemo:5", "-tdemo:1"]
+    );
+    assert_eq!(
+        adapter.render_command(TmuxCommand::RenameWindow {
+            session_name: "demo".to_string(),
+            window_id: 1,
+            name: "editor".to_string(),
+        }),
+        vec!["tmux", "rename-window", "-tdemo:1", "editor"]
+    );
+    assert_eq!(
+        adapter.render_command(TmuxCommand::NewEmptyWindow {
+            session_name: "demo".to_string(),
+            base_index: 1,
+        }),
+        vec!["tmux", "new-window", "-d", "-tdemo:1"]
+    );
+    assert_eq!(
+        adapter.render_command(TmuxCommand::SelectWindow {
+            session_name: "demo".to_string(),
+            window_id: 1,
+        }),
+        vec!["tmux", "select-window", "-tdemo:1"]
+    );
+    assert_eq!(
         adapter.render_command(TmuxCommand::CapturePane {
             pane_id: "demo:1.0".to_string(),
             include_escape: true,
@@ -97,11 +146,24 @@ fn rendered_command_templates_match_tmux_shapes() {
         vec!["tmux", "capture-pane", "-ep", "-S-100000", "-tdemo:1.0"]
     );
     assert_eq!(
+        adapter.render_command(TmuxCommand::ClearPane {
+            pane_id: "demo:1.0".to_string(),
+        }),
+        vec!["tmux", "clear-history", "-tdemo:1.0"]
+    );
+    assert_eq!(
         adapter.render_command(TmuxCommand::CapturePane {
             pane_id: "demo:1.0".to_string(),
             include_escape: false,
         }),
         vec!["tmux", "capture-pane", "-p", "-S-100000", "-tdemo:1.0"]
+    );
+    assert_eq!(
+        adapter.render_command(TmuxCommand::SendKeys {
+            target: "demo:1.0".to_string(),
+            keys: "echo hello\n".to_string(),
+        }),
+        vec!["tmux", "send-keys", "-tdemo:1.0", "echo hello\n"]
     );
     assert_eq!(
         adapter.render_command(TmuxCommand::LoadContent {
@@ -120,7 +182,9 @@ fn rendered_command_templates_match_tmux_shapes() {
 #[test]
 fn missing_tmux_binary_returns_typed_error() {
     let missing_binary = unique_missing_binary();
-    let adapter = TmuxAdapter::from_prefix(vec![missing_binary.clone()], true);
+    let adapter = TmuxRuntimeOptions::new(missing_binary.clone())
+        .content_with_escape(true)
+        .build_adapter();
 
     let error = adapter.list_sessions().unwrap_err();
 

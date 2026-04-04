@@ -12,13 +12,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::backup_name::{BackupNameError, normalize_backup_name};
+use crate::backup_name::{normalize_backup_name, BackupNameError};
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Tmux, Window};
 use crate::snapshot::{self, LoadedSnapshot, PaneAsset, SnapshotError};
-use crate::tmux::TmuxAdapter;
+use crate::tmux::{TmuxClient, TmuxRuntimeOptions};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
 const DUMMY_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -141,7 +141,10 @@ pub fn restore_from_config(
     config: &AppState,
     requested_backup: Option<&str>,
 ) -> Result<String, RestoreError> {
-    let adapter = TmuxAdapter::new(config);
+    let adapter = TmuxRuntimeOptions::new(&config.config().tmux.binary)
+        .socket_name(config.socket_name())
+        .content_with_escape(config.config().capture.with_escape)
+        .build_adapter();
     let active_backup_path = config.active_backup_path();
     let backup_name = resolve_backup_name(&active_backup_path, requested_backup)?;
     restore_from_path_with_adapter(&active_backup_path, &adapter, &backup_name)?;
@@ -187,7 +190,7 @@ pub fn resolve_backup_name(
 
 pub fn restore_from_path_with_adapter(
     active_backup_path: &Path,
-    adapter: &TmuxAdapter,
+    adapter: &impl TmuxClient,
     backup_name: &str,
 ) -> Result<(), RestoreError> {
     let backup_dir = backup_dir_path(active_backup_path, backup_name);
@@ -256,14 +259,14 @@ struct BackupEntry {
     modified: SystemTime,
 }
 
-struct RestoreEngine<'a> {
-    adapter: &'a TmuxAdapter,
+struct RestoreEngine<'a, T: TmuxClient + ?Sized> {
+    adapter: &'a T,
     win_base_index: Option<usize>,
     dummy_session: Option<String>,
 }
 
-impl<'a> RestoreEngine<'a> {
-    fn new(adapter: &'a TmuxAdapter) -> Self {
+impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
+    fn new(adapter: &'a T) -> Self {
         Self {
             adapter,
             win_base_index: None,

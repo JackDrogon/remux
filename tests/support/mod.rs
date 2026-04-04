@@ -2,6 +2,9 @@ use std::collections::BTreeMap;
 
 use remux::model::{Pane, Session, Size, Tmux, Window};
 
+pub mod tmux_fake;
+
+#[allow(dead_code)]
 pub fn single_window_tmux(
     backup_id: &str,
     session_name: &str,

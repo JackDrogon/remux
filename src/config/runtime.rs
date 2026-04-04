@@ -7,7 +7,8 @@
 
 use std::path::PathBuf;
 
-use super::{AppConfig, ConfigError, ConfigPaths, loader, paths::normalize_socket_name};
+use super::{loader, paths::normalize_socket_name, AppConfig, ConfigError, ConfigPaths};
+use crate::tmux::tmux_command_prefix;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionOptions {
@@ -108,13 +109,4 @@ impl ExecutionContext<'_> {
     pub fn tmux_command_prefix(&self) -> Vec<String> {
         tmux_command_prefix(&self.config.tmux.binary, self.socket_name())
     }
-}
-
-fn tmux_command_prefix(binary: &str, socket_name: Option<&str>) -> Vec<String> {
-    let mut prefix = vec![binary.to_string()];
-    if let Some(socket_name) = socket_name {
-        prefix.push("-L".to_string());
-        prefix.push(socket_name.to_string());
-    }
-    prefix
 }
