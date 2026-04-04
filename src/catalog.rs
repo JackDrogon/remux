@@ -229,7 +229,7 @@ fn render_detail_body(tmux: &Tmux) -> String {
             session.name,
             session.windows.len()
         );
-        lines.push(tree_struc(session_text, &[is_last_session], 1, false));
+        lines.push(tree_struct(session_text, &[is_last_session], 1, false));
 
         for (window_index, window) in session.windows.iter().enumerate() {
             let is_last_window = window_index + 1 == session.windows.len();
@@ -239,7 +239,7 @@ fn render_detail_body(tmux: &Tmux) -> String {
                 window.name,
                 window.panes.len()
             );
-            lines.push(tree_struc(
+            lines.push(tree_struct(
                 window_text,
                 &[is_last_session, is_last_window],
                 2,
@@ -249,7 +249,7 @@ fn render_detail_body(tmux: &Tmux) -> String {
             for (pane_index, pane) in window.panes.iter().enumerate() {
                 let is_last_pane = pane_index + 1 == window.panes.len();
                 let pane_text = format!("─Pane ({}) {}", pane.pane_id, pane.path);
-                lines.push(tree_struc(
+                lines.push(tree_struct(
                     pane_text,
                     &[is_last_session, is_last_window, is_last_pane],
                     3,
@@ -374,7 +374,7 @@ fn repeat_line(ch: char) -> String {
     ch.to_string().repeat(LIST_WIDTH)
 }
 
-fn tree_struc(text: String, is_last_list: &[bool], lvl: usize, place_holder: bool) -> String {
+fn tree_struct(text: String, is_last_list: &[bool], lvl: usize, place_holder: bool) -> String {
     if lvl == 0 {
         return text;
     }
@@ -392,7 +392,7 @@ fn tree_struc(text: String, is_last_list: &[bool], lvl: usize, place_holder: boo
         line = format!(" {line}");
     }
 
-    tree_struc(line, is_last_list, current_level, true)
+    tree_struct(line, is_last_list, current_level, true)
 }
 
 fn format_short_info(tmux: &Tmux) -> String {

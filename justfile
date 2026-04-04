@@ -55,7 +55,7 @@ fmt:
 # Format repository-level TOML, JSON, Markdown, and YAML files
 [group('quality')]
 fmt-repo:
-    dprint fmt "README.md" ".github/workflows/ci.yml" "Cargo.toml"
+    dprint fmt "README.md" ".github/workflows/ci.yml" "Cargo.toml" ".config/nextest.toml"
 
 # Run Clippy lints
 [group('quality')]
@@ -74,22 +74,29 @@ spellcheck:
 # Run unit and integration tests
 [group('test')]
 test:
-    cargo test --all-features
+    cargo nextest run --all-features
+    cargo test --doc --all-features
+
+# Run documentation tests that nextest does not execute
+[group('test')]
+test-doc:
+    cargo test --doc --all-features
 
 # Run tmux-backed integration tests against a real tmux server
 [group('test')]
 test-live:
-    cargo test --test live_tmux -- --ignored --nocapture
+    cargo nextest run --test live_tmux --run-ignored only --no-capture
 
 # Run the full local verification suite
 [group('test')]
 check:
     cargo fmt --all --check
-    dprint check "README.md" ".github/workflows/ci.yml" "Cargo.toml"
+    dprint check "README.md" ".github/workflows/ci.yml" "Cargo.toml" ".config/nextest.toml"
     typos .
     cargo clippy --all-targets --all-features -- -D warnings
-    cargo test --all-features
-    cargo test --test live_tmux -- --ignored --nocapture
+    cargo nextest run --all-features
+    cargo test --doc --all-features
+    cargo nextest run --test live_tmux --run-ignored only --no-capture
 
 # Run the same checks before committing
 [group('test')]

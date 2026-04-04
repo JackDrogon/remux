@@ -2,15 +2,9 @@ use std::path::PathBuf;
 
 use super::{AppConfig, ConfigError, ConfigPaths, loader};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionOptions {
     socket_name: Option<String>,
-}
-
-impl Default for ExecutionOptions {
-    fn default() -> Self {
-        Self { socket_name: None }
-    }
 }
 
 impl ExecutionOptions {

@@ -15,7 +15,11 @@ just pre-commit
 just test
 ```
 
-The `just test` and `just check` recipes run `cargo test --all-features` so local validation matches CI.
+The `just test` and `just check` recipes run `cargo nextest run --all-features` and
+`cargo test --doc --all-features`, keeping doctest coverage aligned with CI.
+
+Repository-level nextest configuration lives in `.config/nextest.toml`. CI explicitly uses the `ci`
+profile from that file.
 
 ## Pull requests
 

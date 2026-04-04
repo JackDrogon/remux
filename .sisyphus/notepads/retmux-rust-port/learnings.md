@@ -64,6 +64,7 @@
 - Task 8 showed that restore must use the caller-selected backup directory name for pane-content
   lookup, not the embedded snapshot `tid`; Python passes the external `tmux_id` through the whole
   restore path, so Rust should do the same to keep legacy directory semantics stable.
+- The `src/` hierarchy enforces a strict separation between the subprocess adapter (`tmux.rs`), the serialization format (`snapshot.rs`), and the business engines (`backup.rs`, `restore.rs`), ensuring that platform-specific tmux quirks don't leak into the persistence logic.
 - For fail-fast compatibility, pane-content existence checks should run after filtering out
   conflicting session names but before reading `base-index` or creating a dummy tmux session; this
   preserves the non-fatal collision branch while still avoiding tmux mutations for malformed/missing
@@ -94,3 +95,5 @@
 - CI dprint reliability is easiest to preserve by installing a pinned binary explicitly in the workflow before `dprint check`; pinning `taiki-e/install-action` plus `dprint@0.53.2` removes dependence on whatever tooling happens to exist on the runner image.
 - F2 re-review approved the current workspace for the planned release scope: `src/backup_name.rs` now centralizes explicit-name validation, `backup` / `catalog` / `restore_from_config` all reuse it, `.github/workflows/ci.yml` installs pinned `dprint`, and both `cargo test --all-features` plus `just check` pass after the fix.
 - The remaining quality debt is non-blocking for the documented binary release surface: latest-backup selection is still duplicated across `src/catalog.rs` and `src/restore.rs`, and `restore::restore_from_path_with_adapter` still trusts its already-resolved `backup_name` argument, but current CLI and CI-covered flows route through validated names.
+- Created root AGENTS.md for remux project knowledge base.
+- Created tests/AGENTS.md to document test isolation patterns, fixture usage, and live-tmux verification rules.

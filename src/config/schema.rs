@@ -2,24 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use super::ConfigError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
     pub logging: LoggingConfig,
     pub capture: CaptureConfig,
     pub tmux: TmuxConfig,
     pub backup: BackupConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            logging: LoggingConfig::default(),
-            capture: CaptureConfig::default(),
-            tmux: TmuxConfig::default(),
-            backup: BackupConfig::default(),
-        }
-    }
 }
 
 impl AppConfig {
