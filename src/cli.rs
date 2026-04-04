@@ -1,9 +1,9 @@
 use std::io;
 
 use crate::{
-    BINARY_NAME, backup, catalog,
+    backup,
     config::{AppState, ExecutionOptions},
-    interactive, restore,
+    interactive, restore, BINARY_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,8 +164,9 @@ fn exit_from_result(result: Result<(), String>) -> i32 {
 fn handle_list(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     match action_arg {
         Some(backup_name) => {
-            let entry = catalog::load_backup(config, backup_name).map_err(stringify_error)?;
-            println!("{}", catalog::render_detail(&entry));
+            let entry =
+                crate::storage::load_backup(config, backup_name).map_err(stringify_error)?;
+            println!("{}", crate::storage::render_detail(&entry));
             Ok(())
         }
         None => interactive_list(config),
@@ -174,7 +175,7 @@ fn handle_list(config: &AppState, action_arg: Option<&str>) -> Result<(), String
 
 fn do_delete(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
     let backup_name = action_arg.ok_or_else(|| "delete requires a backup name".to_string())?;
-    catalog::delete_backup(config, backup_name).map_err(stringify_error)?;
+    crate::storage::delete_backup(config, backup_name).map_err(stringify_error)?;
     println!("Backup {backup_name} was deleted");
     Ok(())
 }

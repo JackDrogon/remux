@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
-use remux::snapshot;
+use remux::config::{socket_dir_name, AppConfig, ConfigPaths};
+use remux::storage;
 
 #[test]
 fn creates_snapshot_tree() {
@@ -51,7 +51,7 @@ fn creates_snapshot_tree() {
         "expected backup success message to mention backup path, stdout was: {stdout}"
     );
 
-    let snapshot = snapshot::read_snapshot_dir(&backup_dir)
+    let snapshot = storage::read_snapshot_dir(&backup_dir)
         .expect("generated snapshot should decode as Rust snapshot directory");
     let tmux = &snapshot.tmux;
     assert_eq!(tmux.tid, "backup_20240101_120000");

@@ -4,9 +4,8 @@ use std::process::{Command, Output};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use remux::catalog;
 use remux::config::{AppState, ExecutionOptions};
-use remux::snapshot;
+use remux::storage;
 
 mod support;
 
@@ -36,7 +35,7 @@ fn named_socket_listing_is_isolated() {
     config.set_execution_options(ExecutionOptions::with_socket_name(Some("sockA")));
 
     let named_backups =
-        catalog::list_backups(&config).expect("named-socket catalog listing should succeed");
+        storage::list_backups(&config).expect("named-socket catalog listing should succeed");
     assert_eq!(
         named_backups
             .iter()
@@ -46,7 +45,7 @@ fn named_socket_listing_is_isolated() {
         "named-socket catalog should expose only active-root backups"
     );
 
-    let summary_stdout = catalog::render_summary(&named_backups);
+    let summary_stdout = storage::render_summary(&named_backups);
     assert!(
         summary_stdout.contains("backup_20240102_120000"),
         "named-socket summary should include active-root backup only: {summary_stdout}"
@@ -169,7 +168,7 @@ fn latest_backup_resolution_is_deterministic() {
         .expect("runtime config should load from temp HOME");
     config.set_execution_options(ExecutionOptions::with_socket_name(Some("sockA")));
 
-    let latest = catalog::resolve_restore_target(&config, None)
+    let latest = storage::resolve_restore_target(&config, None)
         .expect("latest backup should resolve from active root");
     assert_eq!(latest, "backup_20240102_120000");
 }
@@ -190,15 +189,15 @@ fn catalog_named_ops_reuse_normalized_backup_names() {
         .expect("runtime config should load from temp HOME");
     config.set_execution_options(ExecutionOptions::with_socket_name(Some("sockA")));
 
-    let loaded = catalog::load_backup(&config, "  backup_trimmed  ")
+    let loaded = storage::load_backup(&config, "  backup_trimmed  ")
         .expect("catalog lookup should trim the requested backup name");
     assert_eq!(loaded.id, "backup_trimmed");
 
-    let restore_target = catalog::resolve_restore_target(&config, Some("  backup_trimmed  "))
+    let restore_target = storage::resolve_restore_target(&config, Some("  backup_trimmed  "))
         .expect("restore target lookup should reuse normalized backup name");
     assert_eq!(restore_target, "backup_trimmed");
 
-    catalog::delete_backup(&config, "  backup_trimmed  ")
+    storage::delete_backup(&config, "  backup_trimmed  ")
         .expect("delete should reuse the same normalized backup name");
     assert!(
         !named_dir.exists(),
@@ -227,7 +226,7 @@ fn named_lookup_reads_only_requested_backup() {
     fs::write(broken_dir.join("summary.json"), r#"{ "backup_id": 123 }"#)
         .expect("broken snapshot should be written");
 
-    let loaded = catalog::load_backup(&config, "backup_good")
+    let loaded = storage::load_backup(&config, "backup_good")
         .expect("named load should not scan unrelated broken backups");
     assert_eq!(loaded.id, "backup_good");
     assert_eq!(loaded.snapshot.sessions[0].name, "ops");
@@ -250,7 +249,7 @@ fn write_backup(
 
     let (tmux, pane_contents) =
         support::single_window_tmux(backup_id, session_name, create_time, pane_paths);
-    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+    storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("snapshot directory should be written");
 
     backup_dir

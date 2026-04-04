@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use remux::model::{Pane, Session, Size, Tmux, Window};
 use remux::restore::{resolve_backup_name, restore_from_path_with_adapter};
-use remux::snapshot;
+use remux::storage;
 use remux::tmux::TmuxAdapter;
 
 mod support;
@@ -21,7 +21,7 @@ fn restores_latest_backup_when_name_missing() {
         "2024-01-01 12:00:00",
         &["/tmp/default-work", "/tmp/default-side"],
     );
-    snapshot::write_snapshot_dir(
+    storage::write_snapshot_dir(
         &backup_root.join("backup_20240101_120000"),
         &older_tmux,
         &older_panes,
@@ -282,7 +282,7 @@ fn write_backup(backup_root: &Path, backup_name: &str, tmux: Tmux, pane_files: &
         .iter()
         .map(|(pane_id, content)| (pane_id.to_string(), content.as_bytes().to_vec()))
         .collect::<std::collections::BTreeMap<_, _>>();
-    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+    storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("should write snapshot directory");
 }
 

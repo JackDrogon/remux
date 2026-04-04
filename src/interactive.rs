@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, Write};
 
-use crate::{catalog, config::AppState, restore};
+use crate::{config::AppState, restore, storage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FlowMode {
@@ -18,7 +18,7 @@ where
     R: BufRead,
     W: Write,
 {
-    let backups = catalog::list_backups_for_listing(config).map_err(stringify_error)?;
+    let backups = storage::list_backups_for_listing(config).map_err(stringify_error)?;
     if backups.is_empty() {
         show_no_backups(output)?;
         return Ok(());
@@ -27,7 +27,7 @@ where
     let mut detail_cache = vec![None; backups.len()];
 
     loop {
-        write_line(output, &catalog::render_summary(&backups))?;
+        write_line(output, &storage::render_summary(&backups))?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
         else {
             return Ok(());
@@ -35,7 +35,7 @@ where
 
         if detail_cache[index].is_none() {
             let detail =
-                catalog::load_backup(config, &backups[index].id).map_err(stringify_error)?;
+                storage::load_backup(config, &backups[index].id).map_err(stringify_error)?;
             detail_cache[index] = Some(detail);
         }
 
@@ -43,7 +43,7 @@ where
             .as_ref()
             .expect("interactive list detail cache should be populated");
 
-        write_line(output, &catalog::render_interactive_detail(detail))?;
+        write_line(output, &storage::render_interactive_detail(detail))?;
     }
 }
 
@@ -82,20 +82,20 @@ where
     W: Write,
 {
     loop {
-        let backups = catalog::list_backups(config).map_err(stringify_error)?;
+        let backups = storage::list_backups(config).map_err(stringify_error)?;
         if backups.is_empty() {
             show_no_backups(output)?;
             return Ok(());
         }
 
-        write_line(output, &catalog::render_summary(&backups))?;
+        write_line(output, &storage::render_summary(&backups))?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), mode)? else {
             return Ok(());
         };
 
         let selected_backup = backups[index].id.clone();
-        let detail = catalog::load_backup(config, &selected_backup).map_err(stringify_error)?;
-        write_line(output, &catalog::render_detail(&detail))?;
+        let detail = storage::load_backup(config, &selected_backup).map_err(stringify_error)?;
+        write_line(output, &storage::render_detail(&detail))?;
 
         match mode {
             FlowMode::Inspect => continue,
@@ -108,7 +108,7 @@ where
                     continue;
                 }
 
-                catalog::delete_backup(config, &selected_backup).map_err(stringify_error)?;
+                storage::delete_backup(config, &selected_backup).map_err(stringify_error)?;
                 write_line(output, &format!("Backup {selected_backup} was deleted"))?;
             }
             FlowMode::Restore => {
@@ -233,7 +233,7 @@ fn show_no_backups<W>(output: &mut W) -> Result<(), String>
 where
     W: Write,
 {
-    write_line(output, catalog::no_backups_message())?;
+    write_line(output, storage::no_backups_message())?;
     output.flush().map_err(io_error)
 }
 

@@ -1,6 +1,5 @@
 pub mod backup;
 pub mod backup_name;
-pub mod catalog;
 pub mod cli;
 pub mod config;
 pub mod error;
@@ -8,7 +7,6 @@ pub(crate) mod hash;
 pub mod interactive;
 pub mod model;
 pub mod restore;
-pub mod snapshot;
 pub mod storage;
 pub mod tmux;
 

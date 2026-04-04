@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::model::{Pane, Session, Size, Tmux, Window};
-use remux::snapshot::{self, SnapshotError};
+use remux::storage::{self, SnapshotError};
 
 mod support;
 
@@ -28,7 +28,7 @@ fn write_rejects_missing_pane_bytes() {
     session.windows.push(window);
     tmux.sessions.push(session);
 
-    let error = snapshot::write_snapshot_dir(
+    let error = storage::write_snapshot_dir(
         temp.path().join("backup_20240101_120000").as_path(),
         &tmux,
         &BTreeMap::new(),
@@ -54,7 +54,7 @@ fn write_rejects_duplicate_pane_ids() {
     let mut pane_contents = BTreeMap::new();
     pane_contents.insert("work:1.0".to_string(), b"content\n".to_vec());
 
-    let error = snapshot::write_snapshot_dir(
+    let error = storage::write_snapshot_dir(
         temp.path().join("backup_20240101_120000").as_path(),
         &tmux,
         &pane_contents,
@@ -79,7 +79,7 @@ fn read_rejects_summary_manifest_hash_mismatch() {
     )
     .expect("tampered summary should write");
 
-    let error = snapshot::read_snapshot_dir(&backup_dir).expect_err("hash mismatch should fail");
+    let error = storage::read_snapshot_dir(&backup_dir).expect_err("hash mismatch should fail");
     assert!(matches!(
         error,
         SnapshotError::SummaryManifestMismatch { .. }
@@ -115,7 +115,7 @@ fn read_rejects_relative_path_escape() {
     )
     .expect("summary rewrite should succeed");
 
-    let error = snapshot::read_snapshot_dir(&backup_dir).expect_err("path escape should fail");
+    let error = storage::read_snapshot_dir(&backup_dir).expect_err("path escape should fail");
     assert!(matches!(error, SnapshotError::InvalidRelativePath { .. }));
 }
 
@@ -135,7 +135,7 @@ fn summary_reader_rejects_unsupported_major_version() {
     )
     .expect("summary rewrite should succeed");
 
-    let error = snapshot::read_snapshot_summary_dir(&backup_dir)
+    let error = storage::read_snapshot_summary_dir(&backup_dir)
         .expect_err("unsupported major version should fail");
     assert!(matches!(error, SnapshotError::UnsupportedVersion { .. }));
 }
@@ -169,7 +169,7 @@ fn read_rejects_manifest_with_missing_pane_table_entry() {
     .expect("summary rewrite should succeed");
 
     let error =
-        snapshot::read_snapshot_dir(&backup_dir).expect_err("missing pane table entry should fail");
+        storage::read_snapshot_dir(&backup_dir).expect_err("missing pane table entry should fail");
     assert!(matches!(error, SnapshotError::InvalidManifest { .. }));
 }
 
@@ -182,7 +182,7 @@ fn write_basic_snapshot(label: &str) -> TempDir {
         "2024-01-01 12:00:00",
         &["/tmp/work"],
     );
-    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+    storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("snapshot directory should be written");
     temp
 }

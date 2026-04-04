@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::restore::restore_from_path_with_adapter;
-use remux::snapshot;
+use remux::storage;
 use remux::tmux::TmuxCommand;
 
 use crate::support::single_window_tmux;
@@ -18,7 +18,7 @@ fn restore_flow_accepts_fake_tmux_client() {
     let (tmux, pane_contents) =
         single_window_tmux(backup_name, "work", "2024-01-01 12:00:00", &["/tmp/work"]);
     let backup_dir = sandbox.backup_root.join(backup_name);
-    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+    storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("snapshot fixture should be written");
 
     let fake = FakeTmux::new([

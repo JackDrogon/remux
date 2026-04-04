@@ -7,7 +7,8 @@
 
 use std::path::PathBuf;
 
-use super::{AppConfig, ConfigError, ConfigPaths, loader, paths::normalize_socket_name};
+use super::{paths::normalize_socket_name, AppConfig, ConfigError, ConfigPaths};
+use crate::storage;
 use crate::tmux::tmux_command_prefix;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -54,7 +55,7 @@ impl AppState {
     }
 
     pub fn load_from_paths(paths: ConfigPaths) -> Result<Self, ConfigError> {
-        let config = loader::load_or_init_app_config(&paths)?;
+        let config = storage::load_or_init_app_config(&paths)?;
 
         Ok(Self {
             paths,

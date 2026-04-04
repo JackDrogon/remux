@@ -19,9 +19,9 @@ use crate::model::Tmux;
 
 use super::fs_ops;
 use super::snapshot_contract::{
-    PaneContentMeta, PaneEncoding, SnapshotManifestFile, SnapshotPane, SnapshotSession,
-    SnapshotSize, SnapshotSummaryFile, SnapshotWindow, build_loaded_snapshot, current_version,
-    ensure_supported_version, read_json_slice, summary_count, summary_to_tmux,
+    build_loaded_snapshot, current_version, ensure_supported_version, read_json_slice,
+    summary_count, summary_to_tmux, PaneContentMeta, PaneEncoding, SnapshotManifestFile,
+    SnapshotPane, SnapshotSession, SnapshotSize, SnapshotSummaryFile, SnapshotWindow,
 };
 
 pub const SUMMARY_FILE_NAME: &str = "summary.json";

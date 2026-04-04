@@ -12,12 +12,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::backup_name::{BackupNameError, normalize_backup_name};
+use crate::backup_name::{normalize_backup_name, BackupNameError};
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Tmux, Window};
-use crate::snapshot::{self, LoadedSnapshot, PaneAsset, SnapshotError};
+use crate::storage::{read_snapshot_dir, LoadedSnapshot, PaneAsset, SnapshotError};
 use crate::tmux::{TmuxClient, TmuxRuntimeOptions};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -194,11 +194,10 @@ pub fn restore_from_path_with_adapter(
     backup_name: &str,
 ) -> Result<(), RestoreError> {
     let backup_dir = backup_dir_path(active_backup_path, backup_name);
-    let snapshot =
-        snapshot::read_snapshot_dir(&backup_dir).map_err(|source| RestoreError::SnapshotLoad {
-            path: backup_dir.clone(),
-            source,
-        })?;
+    let snapshot = read_snapshot_dir(&backup_dir).map_err(|source| RestoreError::SnapshotLoad {
+        path: backup_dir.clone(),
+        source,
+    })?;
 
     let mut engine = RestoreEngine::new(adapter);
     let restore_result = engine.restore_snapshot(&snapshot, &backup_dir);

@@ -7,51 +7,21 @@
 //! and avoids mixing filesystem concerns into the capture path.
 
 use std::collections::BTreeMap;
-use std::ffi::{CStr, c_char, c_int, c_long};
 use std::fmt;
 use std::io;
-use std::mem::MaybeUninit;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use chrono::{Local, NaiveDateTime};
 
 use crate::backup_name::BackupNameError;
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
-use crate::snapshot::{self, SnapshotError};
-use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions};
+use crate::storage::{write_snapshot_dir, SnapshotError};
+use crate::tmux::{TmuxClient, TmuxRuntimeOptions, OUTPUT_SEPARATOR};
 
-const BACKUP_ID_TIME_FORMAT: &[u8] = b"%Y%m%d_%H%M%S\0";
-const CREATE_TIME_FORMAT: &[u8] = b"%Y-%m-%d %H:%M:%S\0";
-const TIME_BUFFER_SIZE: usize = 32;
-
-type TimeT = c_long;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct LocalTime {
-    tm_sec: c_int,
-    tm_min: c_int,
-    tm_hour: c_int,
-    tm_mday: c_int,
-    tm_mon: c_int,
-    tm_year: c_int,
-    tm_wday: c_int,
-    tm_yday: c_int,
-    tm_isdst: c_int,
-    tm_gmtoff: c_long,
-    tm_zone: *const c_char,
-}
-
-unsafe extern "C" {
-    fn localtime_r(timep: *const TimeT, result: *mut LocalTime) -> *mut LocalTime;
-    fn strftime(
-        buffer: *mut c_char,
-        max_size: usize,
-        format: *const c_char,
-        time: *const LocalTime,
-    ) -> usize;
-}
+const BACKUP_ID_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
+const CREATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackupOutcome {
@@ -77,9 +47,6 @@ pub enum BackupError {
         line: String,
         detail: String,
     },
-    TimestampBeforeEpoch,
-    TimestampOutOfRange,
-    TimestampFormattingFailed,
 }
 
 impl fmt::Display for BackupError {
@@ -103,13 +70,6 @@ impl fmt::Display for BackupError {
                 line,
                 detail,
             } => write!(f, "invalid tmux {command} output: {detail} (line: {line})"),
-            Self::TimestampBeforeEpoch => {
-                write!(f, "current system time is before the UNIX epoch")
-            }
-            Self::TimestampOutOfRange => write!(f, "current system time is out of range"),
-            Self::TimestampFormattingFailed => {
-                write!(f, "failed to format the current local timestamp")
-            }
         }
     }
 }
@@ -121,11 +81,7 @@ impl std::error::Error for BackupError {
             Self::Tmux(error) => Some(error),
             Self::Snapshot(error) => Some(error),
             Self::Io { source, .. } => Some(source),
-            Self::DuplicateBackupId { .. }
-            | Self::InvalidTmuxOutput { .. }
-            | Self::TimestampBeforeEpoch
-            | Self::TimestampOutOfRange
-            | Self::TimestampFormattingFailed => None,
+            Self::DuplicateBackupId { .. } | Self::InvalidTmuxOutput { .. } => None,
         }
     }
 }
@@ -158,7 +114,8 @@ fn capture_backup_with_client(
     requested_backup_id: Option<&str>,
     client: &impl TmuxClient,
 ) -> Result<BackupOutcome, BackupError> {
-    let backup_id = resolve_backup_id(requested_backup_id)?;
+    let now = Local::now().naive_local();
+    let backup_id = resolve_backup_id(requested_backup_id, now)?;
     let backup_path = config.active_backup_path().join(&backup_id);
 
     if backup_path.exists() {
@@ -172,10 +129,10 @@ fn capture_backup_with_client(
         return Ok(BackupOutcome::NoServer);
     }
 
-    let snapshot = load_snapshot(client, &backup_id)?;
+    let snapshot = load_snapshot(client, &backup_id, now)?;
     let pane_contents = capture_snapshot_panes(client, &snapshot)?;
 
-    snapshot::write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
+    write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
 
     Ok(BackupOutcome::Created {
         backup_id,
@@ -183,17 +140,24 @@ fn capture_backup_with_client(
     })
 }
 
-fn resolve_backup_id(requested_backup_id: Option<&str>) -> Result<String, BackupError> {
+fn resolve_backup_id(
+    requested_backup_id: Option<&str>,
+    now: NaiveDateTime,
+) -> Result<String, BackupError> {
     match requested_backup_id {
         Some(backup_id) => crate::backup_name::normalize_backup_name(backup_id)
             .map_err(BackupError::InvalidBackupName),
-        None => format_local_time(BACKUP_ID_TIME_FORMAT),
+        None => Ok(format_local_time(now, BACKUP_ID_TIME_FORMAT)),
     }
 }
 
-fn load_snapshot(client: &impl TmuxClient, backup_id: &str) -> Result<Tmux, BackupError> {
+fn load_snapshot(
+    client: &impl TmuxClient,
+    backup_id: &str,
+    now: NaiveDateTime,
+) -> Result<Tmux, BackupError> {
     let mut tmux = Tmux::new(backup_id);
-    tmux.create_time = format_local_time(CREATE_TIME_FORMAT)?;
+    tmux.create_time = format_local_time(now, CREATE_TIME_FORMAT);
     tmux.sessions = load_sessions(client)?;
     Ok(tmux)
 }
@@ -374,35 +338,8 @@ fn invalid_tmux_output(
     }
 }
 
-fn format_local_time(format: &'static [u8]) -> Result<String, BackupError> {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| BackupError::TimestampBeforeEpoch)?
-        .as_secs();
-    let seconds = TimeT::try_from(seconds).map_err(|_| BackupError::TimestampOutOfRange)?;
-
-    let mut local_time = MaybeUninit::<LocalTime>::uninit();
-    let result = unsafe { localtime_r(&seconds, local_time.as_mut_ptr()) };
-    if result.is_null() {
-        return Err(BackupError::TimestampFormattingFailed);
-    }
-
-    let local_time = unsafe { local_time.assume_init() };
-    let mut buffer = [0u8; TIME_BUFFER_SIZE];
-    let written = unsafe {
-        strftime(
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            format.as_ptr().cast(),
-            &local_time,
-        )
-    };
-    if written == 0 {
-        return Err(BackupError::TimestampFormattingFailed);
-    }
-
-    let formatted = unsafe { CStr::from_ptr(buffer.as_ptr().cast()) };
-    Ok(formatted.to_string_lossy().into_owned())
+fn format_local_time(local_time: NaiveDateTime, format: &str) -> String {
+    local_time.format(format).to_string()
 }
 
 #[cfg(test)]
@@ -411,6 +348,8 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    use chrono::NaiveDate;
 
     use super::*;
     use crate::config::AppState;
@@ -445,6 +384,32 @@ mod tests {
             }
             BackupOutcome::NoServer => panic!("expected backup creation, got no server"),
         }
+    }
+
+    #[test]
+    fn format_local_time_matches_backup_id_shape() {
+        let local_time = NaiveDate::from_ymd_opt(2024, 1, 2)
+            .expect("test date should be valid")
+            .and_hms_opt(3, 4, 5)
+            .expect("test time should be valid");
+
+        assert_eq!(
+            format_local_time(local_time, BACKUP_ID_TIME_FORMAT),
+            "20240102_030405"
+        );
+    }
+
+    #[test]
+    fn format_local_time_matches_snapshot_shape() {
+        let local_time = NaiveDate::from_ymd_opt(2024, 1, 2)
+            .expect("test date should be valid")
+            .and_hms_opt(3, 4, 5)
+            .expect("test time should be valid");
+
+        assert_eq!(
+            format_local_time(local_time, CREATE_TIME_FORMAT),
+            "2024-01-02 03:04:05"
+        );
     }
 
     struct FakeBackupClient {

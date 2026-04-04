@@ -10,15 +10,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::backup_name::{BackupNameError, normalize_backup_name};
+use super::catalog_render;
+use super::fs_ops;
+use super::snapshot::{self, SnapshotError};
+use crate::backup_name::{normalize_backup_name, BackupNameError};
 use crate::config::AppState;
 use crate::model::Tmux;
-use crate::snapshot::{self, SnapshotError};
-
-use super::fs_ops;
-
-const LIST_WIDTH: usize = 72;
-const TREE_SPACE: &str = "        ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackupSortOrder {
@@ -145,7 +142,6 @@ pub fn load_backup(config: &AppState, backup_name: &str) -> Result<BackupEntry, 
     let normalized_name =
         normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
     let root = config.active_backup_path();
-
     read_backup_entry_in_root(&root, &normalized_name)
 }
 
@@ -176,139 +172,27 @@ pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), Catalog
 }
 
 pub fn no_backups_message() -> &'static str {
-    "No backup was created yet.\nremux -b [name] to create backup"
+    catalog_render::no_backups_message()
 }
 
 pub fn render_summary(backups: &[BackupEntry]) -> String {
-    let mut lines = Vec::new();
-    lines.push(repeat_line('='));
-    lines.push(format!(
-        " {:>2} {}",
-        "No.",
-        format_short_info_columns("Name", "Sessions", "Created on")
-    ));
-    lines.push(repeat_line('='));
-
-    for (index, entry) in backups.iter().enumerate() {
-        let latest_flag = if index == 0 { '*' } else { ' ' };
-        lines.push(format!(
-            "{latest_flag}{:>2} {}",
-            index + 1,
-            format_short_info(&entry.snapshot)
-        ));
-    }
-
-    lines.push(repeat_line('-'));
-    lines.push(format!("{:>LIST_WIDTH$}", "Latest default backup with (*)"));
-    lines.join("\n")
+    catalog_render::render_summary(backups)
 }
 
 pub fn render_detail(entry: &BackupEntry) -> String {
-    format!(
-        "Details of backup:{}\n{}\n{}",
-        entry.id,
-        repeat_line('='),
-        render_detail_body(&entry.snapshot)
-    )
+    catalog_render::render_detail(entry)
 }
 
 pub fn render_interactive_detail(entry: &BackupEntry) -> String {
-    format!(
-        "{}\nDetails of backup:{}\n{}\n{}\n{}",
-        repeat_line('>'),
-        entry.id,
-        repeat_line('>'),
-        render_detail_body(&entry.snapshot),
-        repeat_line('<')
-    )
+    catalog_render::render_interactive_detail(entry)
 }
 
-fn render_detail_body(tmux: &Tmux) -> String {
-    let mut lines = vec![format!(
-        "{:>LIST_WIDTH$}",
-        format!("Backup was created on {}", tmux.create_time)
-    )];
-    lines.push(format!(
-        " Backup─┬─[{}] ({} sessions):",
-        tmux.tid,
-        tmux.sessions.len()
-    ));
-
-    for (session_index, session) in tmux.sessions.iter().enumerate() {
-        append_session_detail(&mut lines, tmux, session, session_index);
-    }
-
-    lines.join("\n")
-}
-
-fn append_session_detail(
-    lines: &mut Vec<String>,
-    tmux: &Tmux,
-    session: &crate::model::Session,
-    session_index: usize,
-) {
-    let is_last_session = session_index + 1 == tmux.sessions.len();
-    let session_text = format!(
-        "─Session─┬─[{}] ({} windows):",
-        session.name,
-        session.windows.len()
-    );
-    lines.push(tree_struct(session_text, &[is_last_session], 1, false));
-
-    for (window_index, window) in session.windows.iter().enumerate() {
-        append_window_detail(lines, session, window, is_last_session, window_index);
-    }
-}
-
-fn append_window_detail(
-    lines: &mut Vec<String>,
-    session: &crate::model::Session,
-    window: &crate::model::Window,
-    is_last_session: bool,
-    window_index: usize,
-) {
-    let is_last_window = window_index + 1 == session.windows.len();
-    let window_text = format!(
-        "─Window─┬─({}) [{}] ({} panes):",
-        window.win_id,
-        window.name,
-        window.panes.len()
-    );
-    lines.push(tree_struct(
-        window_text,
-        &[is_last_session, is_last_window],
-        2,
-        false,
-    ));
-
-    for (pane_index, pane) in window.panes.iter().enumerate() {
-        append_pane_detail(
-            lines,
-            window,
-            pane,
-            is_last_session,
-            is_last_window,
-            pane_index,
-        );
-    }
-}
-
-fn append_pane_detail(
-    lines: &mut Vec<String>,
-    window: &crate::model::Window,
-    pane: &crate::model::Pane,
-    is_last_session: bool,
-    is_last_window: bool,
-    pane_index: usize,
-) {
-    let is_last_pane = pane_index + 1 == window.panes.len();
-    let pane_text = format!("─Pane ({}) {}", pane.pane_id, pane.path);
-    lines.push(tree_struct(
-        pane_text,
-        &[is_last_session, is_last_window, is_last_pane],
-        3,
-        false,
-    ));
+fn load_backups(
+    config: &AppState,
+    sort_order: BackupSortOrder,
+    load_mode: SnapshotLoadMode,
+) -> Result<Vec<BackupEntry>, CatalogError> {
+    list_backups_in_root(&config.active_backup_path(), sort_order, load_mode)
 }
 
 fn list_backups_in_root(
@@ -337,7 +221,6 @@ fn list_backups_in_root(
     }
 
     sort_backups(&mut backups, sort_order);
-
     Ok(backups)
 }
 
@@ -383,47 +266,6 @@ fn read_backup_entry(
         modified_at,
         snapshot,
     })
-}
-
-fn repeat_line(ch: char) -> String {
-    ch.to_string().repeat(LIST_WIDTH)
-}
-
-fn tree_struct(text: String, ancestor_is_last: &[bool], depth: usize, placeholder: bool) -> String {
-    if depth == 0 {
-        return text;
-    }
-
-    let current_level = depth - 1;
-    let mut line = if ancestor_is_last[current_level] {
-        let node = if placeholder { ' ' } else { '└' };
-        format!("{TREE_SPACE}{node}{text}")
-    } else {
-        let node = if placeholder { '│' } else { '├' };
-        format!("{TREE_SPACE}{node}{text}")
-    };
-
-    if current_level == 1 {
-        line = format!(" {line}");
-    }
-
-    tree_struct(line, ancestor_is_last, current_level, true)
-}
-
-fn format_short_info(tmux: &Tmux) -> String {
-    format_short_info_columns(&tmux.tid, &session_names(tmux), &tmux.create_time)
-}
-
-fn format_short_info_columns(name: &str, sessions: &str, created_on: &str) -> String {
-    format!("{name:<17} {sessions:<30} {created_on}")
-}
-
-fn load_backups(
-    config: &AppState,
-    sort_order: BackupSortOrder,
-    load_mode: SnapshotLoadMode,
-) -> Result<Vec<BackupEntry>, CatalogError> {
-    list_backups_in_root(&config.active_backup_path(), sort_order, load_mode)
 }
 
 fn read_catalog_entry(
@@ -473,12 +315,4 @@ fn read_snapshot_for_entry(path: &Path, load_mode: SnapshotLoadMode) -> Result<T
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn session_names(tmux: &Tmux) -> String {
-    tmux.sessions
-        .iter()
-        .map(|session| session.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
 }

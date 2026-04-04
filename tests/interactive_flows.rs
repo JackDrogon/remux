@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppState, ConfigPaths, ExecutionOptions};
 use remux::model::{Pane, Session, Size, Tmux, Window};
-use remux::snapshot;
+use remux::storage;
 
 mod support;
 
@@ -345,7 +345,7 @@ impl InteractiveEnv {
 
         let (tmux, pane_contents) =
             support::single_window_tmux(backup_id, session_name, create_time, pane_paths);
-        snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
             .expect("snapshot directory should be written");
 
         backup_dir
@@ -379,7 +379,7 @@ impl InteractiveEnv {
 
         let mut pane_contents = std::collections::BTreeMap::new();
         pane_contents.insert("work:1.0".to_string(), b"restored pane\n".to_vec());
-        snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
             .expect("restore snapshot should be written");
         backup_dir
     }
