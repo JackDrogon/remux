@@ -1,10 +1,17 @@
+//! Capture the current tmux server state into the snapshot persistence format.
+//!
+//! This module intentionally keeps capture synchronous and staged: resolve the
+//! backup identifier, read the tmux topology into the domain model, then record
+//! pane bytes exactly as tmux emitted them before delegating the filesystem
+//! contract to `snapshot.rs`. That ordering keeps the persisted snapshot stable
+//! and avoids mixing filesystem concerns into the capture path.
+
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_long};
 use std::fmt;
 use std::io;
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backup_name::BackupNameError;
@@ -12,7 +19,7 @@ use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
 use crate::snapshot::{self, SnapshotError};
-use crate::tmux::{OUTPUT_SEPARATOR, TmuxAdapter, TmuxCommand};
+use crate::tmux::{OUTPUT_SEPARATOR, TmuxAdapter};
 
 const BACKUP_ID_TIME_FORMAT: &[u8] = b"%Y%m%d_%H%M%S\0";
 const CREATE_TIME_FORMAT: &[u8] = b"%Y-%m-%d %H:%M:%S\0";
@@ -56,6 +63,7 @@ pub enum BackupOutcome {
 pub enum BackupError {
     DuplicateBackupId {
         backup_id: String,
+        path: PathBuf,
     },
     InvalidBackupName(BackupNameError),
     Tmux(SubprocessError),
@@ -77,10 +85,11 @@ pub enum BackupError {
 impl fmt::Display for BackupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateBackupId { .. } => {
+            Self::DuplicateBackupId { backup_id, path } => {
                 write!(
                     f,
-                    "(backup -b):the given backup name exists already, aborted."
+                    "(backup -b):the given backup name exists already, aborted. name:{backup_id} path:{}",
+                    path.display()
                 )
             }
             Self::InvalidBackupName(error) => write!(f, "{error}"),
@@ -141,7 +150,10 @@ pub fn capture_backup(
     let backup_path = config.active_backup_path().join(&backup_id);
 
     if backup_path.exists() {
-        return Err(BackupError::DuplicateBackupId { backup_id });
+        return Err(BackupError::DuplicateBackupId {
+            backup_id,
+            path: backup_path,
+        });
     }
 
     let adapter = TmuxAdapter::new(config);
@@ -150,18 +162,7 @@ pub fn capture_backup(
     }
 
     let snapshot = load_snapshot(&adapter, &backup_id)?;
-    let mut pane_contents = BTreeMap::new();
-
-    for session in &snapshot.sessions {
-        for window in &session.windows {
-            for pane in &window.panes {
-                let pane_id = pane.idstr();
-                let pane_bytes =
-                    capture_pane_bytes(&adapter, pane, config.config().capture.with_escape)?;
-                pane_contents.insert(pane_id, pane_bytes);
-            }
-        }
-    }
+    let pane_contents = capture_snapshot_panes(&adapter, &snapshot)?;
 
     snapshot::write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
 
@@ -184,6 +185,25 @@ fn load_snapshot(adapter: &TmuxAdapter, backup_id: &str) -> Result<Tmux, BackupE
     tmux.create_time = format_local_time(CREATE_TIME_FORMAT)?;
     tmux.sessions = load_sessions(adapter)?;
     Ok(tmux)
+}
+
+fn capture_snapshot_panes(
+    adapter: &TmuxAdapter,
+    snapshot: &Tmux,
+) -> Result<BTreeMap<String, Vec<u8>>, BackupError> {
+    let mut pane_contents = BTreeMap::new();
+
+    for session in &snapshot.sessions {
+        for window in &session.windows {
+            for pane in &window.panes {
+                let pane_id = pane.idstr();
+                let pane_bytes = adapter.capture_pane_bytes(&pane_id)?;
+                pane_contents.insert(pane_id, pane_bytes);
+            }
+        }
+    }
+
+    Ok(pane_contents)
 }
 
 fn load_sessions(adapter: &TmuxAdapter) -> Result<Vec<Session>, BackupError> {
@@ -325,50 +345,6 @@ fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool, 
             line: line.to_string(),
             detail: format!("failed to parse active flag {value:?}: {error}"),
         })
-}
-
-fn capture_pane_bytes(
-    adapter: &TmuxAdapter,
-    pane: &Pane,
-    include_escape: bool,
-) -> Result<Vec<u8>, BackupError> {
-    let command = adapter.render_command(TmuxCommand::CapturePane {
-        pane_id: pane.idstr(),
-        include_escape,
-    });
-    let output = Command::new(&command[0])
-        .args(&command[1..])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|source| match source.kind() {
-            io::ErrorKind::NotFound => BackupError::Tmux(SubprocessError::BinaryNotFound {
-                command: command.clone(),
-                source,
-            }),
-            _ => BackupError::Tmux(SubprocessError::SpawnFailed {
-                command: command.clone(),
-                source,
-            }),
-        })?;
-
-    if !output.status.success() {
-        return Err(BackupError::Tmux(SubprocessError::Failed {
-            command,
-            status: output.status.code(),
-            stdout: normalize_stream(output.stdout),
-            stderr: normalize_stream(output.stderr),
-        }));
-    }
-
-    Ok(output.stdout)
-}
-
-fn normalize_stream(bytes: Vec<u8>) -> String {
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if text.ends_with('\n') {
-        text.pop();
-    }
-    text
 }
 
 fn format_local_time(format: &'static [u8]) -> Result<String, BackupError> {

@@ -1,3 +1,10 @@
+//! Runtime-facing configuration accessors.
+//!
+//! `AppState` owns both the parsed static config and the transient execution
+//! options that come from CLI flags. Centralizing the derived accessors here is
+//! what keeps backup, catalog, and restore flows consistent when `-L` switches
+//! the active tmux socket and therefore the active backup root.
+
 use std::path::PathBuf;
 
 use super::{AppConfig, ConfigError, ConfigPaths, loader};

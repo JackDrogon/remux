@@ -7,26 +7,18 @@ Generated: 2026-04-04 / 8894101 / main
 type-safe port of the Python `retmux` utility, maintaining full structural compatibility with legacy 
 backup formats while providing a robust CLI for Linux environments.
 
-## STRUCTURE
-- `src/`: Core logic and binary entry point.
-- `tests/`: Extensive integration suite (CLI, Compatibility, Live Tmux).
+## PROJECT MAP
+- `src/`: Core logic and binary entry point (`main.rs`, `lib.rs`).
+- `tests/`: Integration suite (`live_tmux.rs`, `cli_contract.rs`).
 - `assets/`: Bundled default configurations.
 - `ref/retmux/`: Reference Python implementation for behavior parity.
 - `.config/`: Tool-specific configurations (e.g., nextest).
 
-## WHERE TO LOOK
-- **Tmux Interaction**: `src/tmux.rs` (adapter layer) and `tests/live_tmux.rs` (real integration).
-- **Configuration**: `src/config/` (schema, paths, loading).
-- **Data Persistence**: `src/backup.rs` and `src/snapshot.rs`.
-- **Catalog Management**: `src/catalog.rs` (listing, latest-resolution, deletion).
-- **Restoration Logic**: `src/restore.rs`.
-
-## CODE MAP
-- `main.rs` -> `cli.rs`: Entry point and command routing.
-- `lib.rs`: Library exports for modular testing.
-- `backup_name.rs`: Centralized validation for backup identifiers.
-- `model.rs`: Core domain entities (Session, Window, Pane).
-- `interactive.rs`: Thin layer for the `-i` / interactive loop.
+## CORE MODULES
+- **Tmux Adapter**: `src/tmux.rs` (exclusive gate for tmux calls).
+- **Persistence**: `src/backup.rs` and `src/snapshot.rs` (JSON markers).
+- **Management**: `src/catalog.rs` (index) and `src/restore.rs` (engine).
+- **Config**: `src/config/` (hierarchical loading and path derivation).
 
 ## CONVENTIONS
 - **Backup Roots**: Default to `~/.remux/`. Use socket-based isolation under `backup-sockets/`.
@@ -46,12 +38,18 @@ backup formats while providing a robust CLI for Linux environments.
 - **Telegraphic CLI**: Minimalist output; errors use stable messages for legacy parity.
 - **Structural Decoding**: Rust structs overlay optional JSON fields to preserve legacy defaults.
 
+## JUSTFILE-FIRST EXECUTION POLICY
+This policy ensures local/CI consistency and prevents deviation from project-standard toolchain flags.
+- **Default**: Use `just <recipe>` for all routine workflows (build, test, lint, format, check).
+- **Exceptions**: Raw toolchain commands (cargo, clippy, nextest, dprint, typos) are permitted only when debugging a recipe gap or investigating specific CI-only flag behavior.
+- **Reporting**: When an exception is used, the agent must explicitly state the reason and the specific command in its output.
+
 ## COMMANDS
 - `just build`: Standard debug build.
 - `just test`: Runs unit tests and doctests.
 - `just test-live`: Runs integration tests against a real tmux server (requires `tmux`).
 - `just check`: Full gate (fmt, dprint, typos, clippy, test, test-doc, test-live).
-- `cargo run -- -h`: View all CLI actions (Backup, List, Restore, Interactive).
+- `just run -- -h`: View all CLI actions (Backup, List, Restore, Interactive).
 
 ## NOTES
 - **Runtime**: Linux + tmux on `PATH` + Rust stable (1.85+).

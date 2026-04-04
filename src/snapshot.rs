@@ -1,3 +1,11 @@
+//! Persist and validate the on-disk snapshot contract.
+//!
+//! The snapshot format is intentionally split into a lightweight summary file,
+//! a full manifest, and pane content blobs. This keeps list operations cheap
+//! while still allowing restore to validate integrity before mutating tmux. The
+//! writer uses a temporary directory plus rename so readers never observe a
+//! partially written snapshot tree.
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, File};
@@ -6,8 +14,8 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
+use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Size, Tmux, Window};
 
 pub const SUMMARY_FILE_NAME: &str = "summary.json";
@@ -216,26 +224,11 @@ pub fn write_snapshot_dir(
     tmux: &Tmux,
     pane_contents: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(), SnapshotError> {
-    let parent = snapshot_dir
-        .parent()
-        .ok_or_else(|| SnapshotError::InvalidManifest {
-            path: snapshot_dir.to_path_buf(),
-            detail: "snapshot directory must have a parent".to_string(),
-        })?;
+    let parent = snapshot_parent_dir(snapshot_dir)?;
     create_dir_all(parent)?;
 
     let temp_dir = prepare_temp_dir(snapshot_dir)?;
-    let panes_dir = temp_dir.join(PANES_DIR_NAME);
-    create_dir_all(&panes_dir)?;
-
-    let manifest = build_manifest(tmux, pane_contents)?;
-    write_pane_files(&temp_dir, pane_contents, &manifest.pane_table)?;
-
-    let manifest_path = temp_dir.join(MANIFEST_FILE_NAME);
-    let manifest_bytes = write_json_file(&manifest_path, &manifest)?;
-    let summary = build_summary(tmux, &manifest, &manifest_bytes)?;
-    let summary_path = temp_dir.join(SUMMARY_FILE_NAME);
-    write_json_file(&summary_path, &summary)?;
+    let panes_dir = write_snapshot_payload(&temp_dir, tmux, pane_contents)?;
 
     sync_dir(&panes_dir)?;
     sync_dir(&temp_dir)?;
@@ -245,6 +238,35 @@ pub fn write_snapshot_dir(
     })?;
     sync_dir(parent)?;
     Ok(())
+}
+
+fn snapshot_parent_dir(snapshot_dir: &Path) -> Result<&Path, SnapshotError> {
+    snapshot_dir
+        .parent()
+        .ok_or_else(|| SnapshotError::InvalidManifest {
+            path: snapshot_dir.to_path_buf(),
+            detail: "snapshot directory must have a parent".to_string(),
+        })
+}
+
+fn write_snapshot_payload(
+    temp_dir: &Path,
+    tmux: &Tmux,
+    pane_contents: &BTreeMap<String, Vec<u8>>,
+) -> Result<PathBuf, SnapshotError> {
+    let panes_dir = temp_dir.join(PANES_DIR_NAME);
+    create_dir_all(&panes_dir)?;
+
+    let manifest = build_manifest(tmux, pane_contents)?;
+    write_pane_files(temp_dir, pane_contents, &manifest.pane_table)?;
+
+    let manifest_path = temp_dir.join(MANIFEST_FILE_NAME);
+    let manifest_bytes = write_json_file(&manifest_path, &manifest)?;
+    let summary = build_summary(tmux, &manifest, &manifest_bytes)?;
+    let summary_path = temp_dir.join(SUMMARY_FILE_NAME);
+    write_json_file(&summary_path, &summary)?;
+
+    Ok(panes_dir)
 }
 
 pub fn read_snapshot_summary_dir(snapshot_dir: &Path) -> Result<Tmux, SnapshotError> {
@@ -652,16 +674,6 @@ fn sync_dir(path: &Path) -> Result<(), SnapshotError> {
 #[cfg(not(unix))]
 fn sync_dir(_path: &Path) -> Result<(), SnapshotError> {
     Ok(())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
 }
 
 fn validate_relative_path(relative_path: &str) -> Result<(), SnapshotError> {

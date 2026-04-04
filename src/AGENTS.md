@@ -1,30 +1,35 @@
 # SOURCE LAYER KNOWLEDGE BASE
 
-## OVERVIEW
-The `src/` directory contains the core logic of `remux`. It is structured as a library (`lib.rs`) with a thin binary wrapper (`main.rs`). The design emphasizes synchronous I/O, type-safe tmux interaction, and legacy compatibility.
+## SOURCE STRUCTURE
+- `main.rs` / `cli.rs`: CLI argument parsing and high-level routing.
+- `lib.rs`: Public API facade for integration testing.
+- `model.rs`: Pure data structures (Session -> Window -> Pane).
+- `backup_name.rs`: Centralized validation for backup identifiers.
 
-## MODULE MAP
-- **Tmux Adapter** (`tmux.rs`): The exclusive gate for `tmux` subprocess calls. Uses `std::process::Command` with custom format strings (`:=:`) for deterministic output parsing.
-- **Persistence** (`snapshot.rs`): Handles the dual-file JSON storage (`summary.json`, `manifest.json`) and pane content hashing (SHA256).
-- **Core Logic**:
-    - `backup.rs`: Orchestrates state capture and disk persistence.
-    - `restore.rs`: Implements the `RestoreEngine` which handles renumbering, layout replay, and dummy-session probing.
-    - `catalog.rs`: Manages the backup index, sorting, and lifecycle.
-- **Configuration** (`config/`): Hierarchical config loading and runtime path derivation (supporting socket isolation).
-- **Domain Model** (`model.rs`): Pure data structures representing the tmux hierarchy (Session -> Window -> Pane).
+## IMPLEMENTATION GUIDELINES
+- **Tmux Interaction** (`tmux.rs`): Mandatory adapter layer. Uses custom format strings (`:=:`) for deterministic output. Handles raw process bytes to avoid encoding-related data loss.
+- **Persistence** (`snapshot.rs`): Dual-file JSON storage (`summary.json`, `manifest.json`). Must maintain Python-style `__class__` markers for legacy compatibility and handle optional JSON fields like `Window.name`.
+- **Business Logic**:
+    - `backup.rs`: State capture (raw bytes for pane content). Groups sessions and captures terminal dimensions.
+    - `restore.rs`: Sequential replay (renumbering, base-index probing). Rebuilds layouts using tmux-native strings.
+    - `catalog.rs`: Catalog lifecycle and isolation. Sorting by `mtime desc` then `id desc`.
+- **Config** (`config/`): Path derivation (`AppState::active_backup_path`). Handles socket-dir sanitization (`[^A-Za-z0-9_.-] -> _`).
+
+## CORE DOMAIN
+- `model.rs`:
+    - **Session**: High-level grouping, tracks active window.
+    - **Window**: Tracks order, layout, and child panes.
+    - **Pane**: Tracks working directory, history content, and TTY state.
+- `interactive.rs`: Reloads catalog on every loop iteration to keep state fresh.
+- `backup_name.rs`: Centralized regex validation for custom backup IDs.
 
 ## CONVENTIONS
-- **Path Isolation**: All backup paths MUST be derived through `AppState::active_backup_path()` to ensure `-L` socket isolation works correctly.
-- **Error Propagation**: Use module-specific Error enums. Prefer `String` errors only at the CLI boundary (`cli.rs`).
-- **Sync Only**: No `async/await`. Tmux interaction is naturally sequential and binary-driven.
-- **Safe Capture**: Pane content is captured as raw bytes to preserve trailing newlines for legacy parity.
+- **Path Isolation**: Derive all backup paths through `AppState` to honor `-L` socket isolation.
+- **Safe Capture**: Preserve trailing newlines in pane content (legacy parity).
+- **Error Handling**: Module-level Error enums; strings only at CLI boundary.
+- **Sync Model**: Standard synchronous `std::process::Command` (no async).
 
 ## ANTI-PATTERNS
-- **Direct Command Call**: Never use `std::process::Command` directly for tmux; always use `TmuxAdapter`.
-- **Path String Building**: Avoid manual path concatenation; use `PathBuf` and central config methods.
-- **State Leakage**: Don't query host tmux options (like `base-index`) without considering if a server is actually running (see `RestoreEngine::ensure_base_index_ready`).
-
-## NOTES
-- **Critical Files**: `restore.rs` and `tmux.rs` are high-impact. Changes here require `test-live` verification.
-- **Deterministic Ordering**: Catalog listings must sort by `mtime desc` then `id desc`.
-- **Legacy Compatibility**: `snapshot.rs` must remain compatible with Python-style `__class__` markers.
+- **Direct Shell Calls**: Never skip `TmuxAdapter` to call `tmux` directly.
+- **Manual Paths**: No manual `.join(".remux")` or similar path building; use `ConfigPaths`.
+- **Server Assumptions**: Check for running server/active session before querying state.

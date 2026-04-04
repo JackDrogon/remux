@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod cli;
 pub mod config;
 pub mod error;
+pub(crate) mod hash;
 pub mod interactive;
 pub mod model;
 pub mod restore;

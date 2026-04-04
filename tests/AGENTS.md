@@ -1,35 +1,31 @@
 # TEST KNOWLEDGE BASE
 
-## OVERVIEW
-The `tests/` directory contains a tiered suite of verification tools ranging from pure 
-serialization contracts to live, side-effect-heavy integration with `tmux`.
+## TEST TIERS
+- **Contracts** (`*_contract.rs`): Argument logic (e.g., `-L` position flexibility) and legacy JSON structure.
+- **Integration** (`*_integration.rs` / `*_ops.rs`): Logic flows like `BackupOutcome` and `RestoreEngine` replay.
+- **Live** (`live_tmux.rs`): Full-cycle tests with real `tmux`. Requires `just test-live` or `--run-ignored`.
+- **Shared Helpers**: `tests/support/mod.rs` (fake-tmux log assertions and environment setup).
 
-## WHERE TO LOOK
-- **CLI/Parsing**: `tests/cli_contract.rs` (argument logic) and `tests/help_output.rs`.
-- **Serialization**: `tests/snapshot_contract.rs` (JSON/Legacy compatibility).
-- **Core Logic**: `tests/backup_capture.rs`, `tests/restore_integration.rs`, `tests/catalog_ops.rs`.
-- **Live Integration**: `tests/live_tmux.rs` (real server interactions).
-- **Shared Helpers**: `tests/support/mod.rs` (mock generators).
+## ISOLATION RULES
+- **Temp HOME**: Every test that touches `~/.remux/` must run in a unique temp directory using `TempHome`.
+- **Unique Socket**: Live tests must use `-L <unique-socket-name>` (derived from PID) to avoid host leakage.
+- **No Global Config**: Ensure host `.tmux.conf` does not influence base-index or pane-index values.
+- **RUSTUP_HOME/CARGO_HOME**: Point these to real toolchain locations when running binary integration with a custom `HOME`.
+- **Ignored Live Tests**: Keep live tests under `#[ignore]` to maintain non-Linux CI portability.
 
-## CONVENTIONS
-- **Runner**: Use `cargo nextest` for parallel execution of unit and standard integration tests.
-- **Doctests**: Must be run separately via `cargo test --doc` (or `just test-doc`).
-- **Isolation**: Live tests MUST use a temporary `HOME` and unique `-L <socket>` to avoid 
-  leakage from the developer's host environment (e.g., custom `.tmux.conf`).
-- **Naming**: 
-  - `*_contract.rs`: Boundary/Format validation.
-  - `*_integration.rs`: Multi-module logic flows.
-  - `live_tmux.rs`: Real process execution against `tmux`.
-- **Fixtures**: Committed under `tests/fixtures/` for deterministic legacy validation.
+## FIXTURES & MOCKS
+- **Legacy Fixtures**: `tests/fixtures/legacy/` for `__class__` and `session:window.pane` validation.
+- **Snapshots**: Use `snapshot_contract.rs` to verify that frozen fixtures remain decodable with optional fields.
+- **Mock Tmux**: Use `MockTmuxAdapter` to assert command ordering (e.g., `list-windows` before `list-panes`).
+- **Binary CLI**: Use `env.run_binary()` to test the actual `remux` executable with an isolated environment.
+
+## NAMING CONVENTIONS
+- `*_contract.rs`: Boundary/Format validation (Argument parsing, JSON schema).
+- `*_integration.rs`: Multi-module logic flows involving `BackupOutcome` or `RestoreOutcome`.
+- `*_ops.rs`: Catalog and directory manipulation tests.
+- `live_tmux.rs`: Real process execution requiring a running `tmux` server.
 
 ## ANTI-PATTERNS
-- **Global HOME**: Never run integration tests that touch `~/.remux/` on the host.
-- **Shared Sockets**: Avoid using the default tmux socket in tests; always generate a 
-  unique name per test run.
-- **Live in Default Suite**: Do not remove `#[ignore]` from live tests; they must remain 
-  opt-in to keep `cargo test` portable.
-
-## NOTES
-- **nextest config**: Repository behavior is tuned in `.config/nextest.toml`.
-- **CI Flow**: CI runs the full suite including `live_tmux`.
-- **Environment**: If `cargo` freezes, it may be waiting for a build-directory lock.
+- **Host Contamination**: Modifying the developer's real `~/.remux/` or `tmux` server.
+- **Shared Socket Names**: Using "remux-test" as a static name (leads to parallel execution races).
+- **Unchecked Build Logs**: Misinterpreting Cargo's "waiting for lock" message as an execution failure.

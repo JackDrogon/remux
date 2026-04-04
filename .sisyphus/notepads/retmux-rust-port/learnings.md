@@ -97,3 +97,5 @@
 - The remaining quality debt is non-blocking for the documented binary release surface: latest-backup selection is still duplicated across `src/catalog.rs` and `src/restore.rs`, and `restore::restore_from_path_with_adapter` still trusts its already-resolved `backup_name` argument, but current CLI and CI-covered flows route through validated names.
 - Created root AGENTS.md for remux project knowledge base.
 - Created tests/AGENTS.md to document test isolation patterns, fixture usage, and live-tmux verification rules.
+- Completed dedup pass for AGENTS hierarchy, ensuring focused guidance for root, source, and test layers within required size bounds.
+- Hardened JUSTFILE-FIRST EXECUTION POLICY in root AGENTS.md to ensure local/CI toolchain consistency.

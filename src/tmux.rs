@@ -1,5 +1,12 @@
+//! Centralized tmux command adapter.
+//!
+//! This module owns the exact tmux command shapes that the rest of the codebase
+//! relies on. Keeping rendering and subprocess execution together makes it safe
+//! to refactor higher-level backup and restore flows without accidentally
+//! changing the command contract enforced by the integration tests.
+
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,6 +36,20 @@ pub struct CommandOutput {
 
 impl CommandOutput {
     pub fn success(&self) -> bool {
+        self.status == Some(0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ByteCommandOutput {
+    command: Vec<String>,
+    status: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl ByteCommandOutput {
+    fn success(&self) -> bool {
         self.status == Some(0)
     }
 }
@@ -160,6 +181,27 @@ impl TmuxAdapter {
                 include_escape: self.content_with_escape,
             })?
             .stdout)
+    }
+
+    pub fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>, SubprocessError> {
+        let output = execute_command_bytes(
+            self.render_command(TmuxCommand::CapturePane {
+                pane_id: pane_id.to_string(),
+                include_escape: self.content_with_escape,
+            }),
+            self.timeout,
+        )?;
+
+        if output.success() {
+            return Ok(output.stdout);
+        }
+
+        Err(SubprocessError::Failed {
+            command: output.command,
+            status: output.status,
+            stdout: normalize_output_stream(output.stdout),
+            stderr: normalize_output_stream(output.stderr),
+        })
     }
 
     pub fn show_option(&self, option: &str) -> Result<String, SubprocessError> {
@@ -508,7 +550,34 @@ fn execute_command(
     command: Vec<String>,
     timeout: Option<Duration>,
 ) -> Result<CommandOutput, SubprocessError> {
-    let mut child = Command::new(&command[0])
+    let child = spawn_command(&command)?;
+    let output = wait_for_output(command.clone(), child, timeout)?;
+
+    Ok(CommandOutput {
+        command,
+        status: output.status.code(),
+        stdout: normalize_output_stream(output.stdout),
+        stderr: normalize_output_stream(output.stderr),
+    })
+}
+
+fn execute_command_bytes(
+    command: Vec<String>,
+    timeout: Option<Duration>,
+) -> Result<ByteCommandOutput, SubprocessError> {
+    let child = spawn_command(&command)?;
+    let output = wait_for_output(command.clone(), child, timeout)?;
+
+    Ok(ByteCommandOutput {
+        command,
+        status: output.status.code(),
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
+}
+
+fn spawn_command(command: &[String]) -> Result<Child, SubprocessError> {
+    Command::new(&command[0])
         .args(&command[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -516,15 +585,21 @@ fn execute_command(
         .spawn()
         .map_err(|source| match source.kind() {
             std::io::ErrorKind::NotFound => SubprocessError::BinaryNotFound {
-                command: command.clone(),
+                command: command.to_vec(),
                 source,
             },
             _ => SubprocessError::SpawnFailed {
-                command: command.clone(),
+                command: command.to_vec(),
                 source,
             },
-        })?;
+        })
+}
 
+fn wait_for_output(
+    command: Vec<String>,
+    mut child: Child,
+    timeout: Option<Duration>,
+) -> Result<Output, SubprocessError> {
     if let Some(timeout) = timeout {
         let deadline = Instant::now() + timeout;
         loop {
@@ -544,8 +619,8 @@ fn execute_command(
                             command,
                             timeout,
                             status: output.status.code(),
-                            stdout: normalize_stream(output.stdout),
-                            stderr: normalize_stream(output.stderr),
+                            stdout: normalize_output_stream(output.stdout),
+                            stderr: normalize_output_stream(output.stderr),
                         });
                     }
                     thread::sleep(POLL_INTERVAL);
@@ -557,22 +632,12 @@ fn execute_command(
         }
     }
 
-    let output = child
+    child
         .wait_with_output()
-        .map_err(|source| SubprocessError::WaitFailed {
-            command: command.clone(),
-            source,
-        })?;
-
-    Ok(CommandOutput {
-        command,
-        status: output.status.code(),
-        stdout: normalize_stream(output.stdout),
-        stderr: normalize_stream(output.stderr),
-    })
+        .map_err(|source| SubprocessError::WaitFailed { command, source })
 }
 
-fn normalize_stream(bytes: Vec<u8>) -> String {
+fn normalize_output_stream(bytes: Vec<u8>) -> String {
     let mut text = String::from_utf8_lossy(&bytes).into_owned();
     if text.ends_with('\n') {
         text.pop();

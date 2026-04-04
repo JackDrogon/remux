@@ -1,3 +1,10 @@
+//! Replay a persisted snapshot back into a live tmux server.
+//!
+//! The restore path validates pane assets before mutating tmux on purpose.
+//! Snapshot reads are cheap to repeat, but tmux mutations are not transactional,
+//! so this module keeps the "validate first, replay second" boundary explicit
+//! to preserve fail-fast behavior and predictable recovery semantics.
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -8,10 +15,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::error::SubprocessError;
+use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Tmux, Window};
 use crate::snapshot::{self, LoadedSnapshot, PaneAsset, SnapshotError};
 use crate::tmux::TmuxAdapter;
-use sha2::{Digest, Sha256};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
 const DUMMY_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -190,7 +197,7 @@ pub fn restore_from_path_with_adapter(
             source,
         })?;
 
-    let mut engine = RestoreEngine::new(active_backup_path, adapter);
+    let mut engine = RestoreEngine::new(adapter);
     let restore_result = engine.restore_snapshot(&snapshot, &backup_dir);
     let cleanup_result = engine.cleanup_dummy_session();
 
@@ -256,7 +263,7 @@ struct RestoreEngine<'a> {
 }
 
 impl<'a> RestoreEngine<'a> {
-    fn new(_active_backup_path: &'a Path, adapter: &'a TmuxAdapter) -> Self {
+    fn new(adapter: &'a TmuxAdapter) -> Self {
         Self {
             adapter,
             win_base_index: None,
@@ -363,9 +370,21 @@ impl<'a> RestoreEngine<'a> {
         backup_dir: &Path,
     ) -> Result<(), RestoreError> {
         let win_base_index = self.ensure_base_index_ready()?;
-        let window_id = usize::try_from(window.win_id)
-            .expect("u32 window ids should always fit into usize on supported targets");
+        let window_id = window_id(window);
 
+        self.restore_window_identity(window, win_base_index, window_id)?;
+        self.restore_window_panes(window, window_id, pane_assets, backup_dir)?;
+        self.adapter
+            .select_layout(&window.sess_name, window_id, &window.layout)?;
+        Ok(())
+    }
+
+    fn restore_window_identity(
+        &self,
+        window: &Window,
+        win_base_index: usize,
+        window_id: usize,
+    ) -> Result<(), RestoreError> {
         if win_base_index != window_id {
             self.adapter
                 .renumber_window(&window.sess_name, win_base_index, window_id)?;
@@ -378,24 +397,36 @@ impl<'a> RestoreEngine<'a> {
             self.adapter.select_window(&window.sess_name, window_id)?;
         }
 
-        if window.panes.len() > 1 {
-            let pane_min_id = window
-                .min_pane_id()
-                .expect("multi-pane windows must expose a minimum pane id");
-            let pane_min_id = usize::try_from(pane_min_id)
-                .expect("u32 pane ids should always fit into usize on supported targets");
-            for _ in 0..window.panes.len() - 1 {
-                self.adapter
-                    .split_window(&window.sess_name, window_id, pane_min_id)?;
-            }
-        }
+        Ok(())
+    }
+
+    fn restore_window_panes(
+        &self,
+        window: &Window,
+        window_id: usize,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
+    ) -> Result<(), RestoreError> {
+        self.expand_window_panes(window, window_id)?;
 
         for pane in &window.panes {
             self.restore_pane(pane, pane_assets, backup_dir)?;
         }
 
-        self.adapter
-            .select_layout(&window.sess_name, window_id, &window.layout)?;
+        Ok(())
+    }
+
+    fn expand_window_panes(&self, window: &Window, window_id: usize) -> Result<(), RestoreError> {
+        if window.panes.len() <= 1 {
+            return Ok(());
+        }
+
+        let pane_min_id = pane_min_id(window);
+        for _ in 0..window.panes.len() - 1 {
+            self.adapter
+                .split_window(&window.sess_name, window_id, pane_min_id)?;
+        }
+
         Ok(())
     }
 
@@ -477,14 +508,17 @@ impl<'a> RestoreEngine<'a> {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
+fn window_id(window: &Window) -> usize {
+    usize::try_from(window.win_id)
+        .expect("u32 window ids should always fit into usize on supported targets")
+}
+
+fn pane_min_id(window: &Window) -> usize {
+    let pane_min_id = window
+        .min_pane_id()
+        .expect("multi-pane windows must expose a minimum pane id");
+    usize::try_from(pane_min_id)
+        .expect("u32 pane ids should always fit into usize on supported targets")
 }
 
 fn generate_dummy_session_name() -> String {

@@ -1,3 +1,10 @@
+//! Catalog views over persisted backup directories.
+//!
+//! Listing, lookup, rendering, and deletion live together so every CLI path
+//! applies the same root-isolation and snapshot-decoding rules. The sort order
+//! is intentionally explicit because the interactive list and the default
+//! restore target use different stability requirements.
+
 use std::fmt;
 use std::fs;
 use std::io;
@@ -85,8 +92,12 @@ impl fmt::Display for CatalogError {
                     path.display()
                 )
             }
-            Self::MissingBackupName { name, .. } => {
-                write!(f, "cannot find given backup name:{name}")
+            Self::MissingBackupName { name, root } => {
+                write!(
+                    f,
+                    "cannot find given backup name:{name} under {}",
+                    root.display()
+                )
             }
             Self::NoBackups { root } => write!(
                 f,
