@@ -13,7 +13,7 @@ fn creates_snapshot_tree() {
     env.write_config(true);
     env.install_fake_tmux();
 
-    let output = env.run_binary(&["-L", "sock/name", "-b", "backup_20240101_120000"]);
+    let output = env.run_binary(&["-L", "sock/name", "backup", "backup_20240101_120000"]);
     assert_success(&output, "named-socket backup should succeed");
 
     let backup_root = env
@@ -110,7 +110,7 @@ fn duplicate_backup_id_fails() {
     let sentinel = backup_dir.join("summary.json");
     fs::write(&sentinel, "sentinel").expect("should write sentinel snapshot");
 
-    let output = env.run_binary(&["-b", "existing_backup"]);
+    let output = env.run_binary(&["backup", "existing_backup"]);
     assert!(
         !output.status.success(),
         "duplicate backup id should exit nonzero: {output:?}"
@@ -118,7 +118,7 @@ fn duplicate_backup_id_fails() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("exists already") && !stderr.contains("binary not found"),
+        stderr.contains("already exists") && !stderr.contains("binary not found"),
         "expected duplicate-id error, got stderr: {stderr}"
     );
     assert_eq!(
@@ -140,7 +140,7 @@ fn invalid_backup_names_fail_before_tmux_probe() {
         "nested\\name",
         "/tmp/backup",
     ] {
-        let output = env.run_binary(&["-b", invalid_name]);
+        let output = env.run_binary(&["backup", invalid_name]);
         assert!(
             !output.status.success(),
             "invalid backup name {invalid_name:?} should exit nonzero"
@@ -165,7 +165,7 @@ fn trimmed_backup_name_is_normalized_for_create_and_lookup() {
     env.write_config(true);
     env.install_fake_tmux();
 
-    let create = env.run_binary(&["-b", "  backup_trimmed  "]);
+    let create = env.run_binary(&["backup", "  backup_trimmed  "]);
     assert_success(&create, "trimmed backup name should create successfully");
 
     let backup_dir = env
@@ -185,12 +185,12 @@ fn trimmed_backup_name_is_normalized_for_create_and_lookup() {
         "raw whitespace-padded backup directory should not be created"
     );
 
-    let detail = env.run_binary(&["-l", "backup_trimmed"]);
+    let detail = env.run_binary(&["list", "backup_trimmed"]);
     assert_success(&detail, "lookup should succeed with normalized backup name");
 
     let detail_stdout = String::from_utf8_lossy(&detail.stdout);
     assert!(
-        detail_stdout.contains("Details of backup:backup_trimmed"),
+        detail_stdout.contains("Backup: backup_trimmed"),
         "expected detail lookup to reuse normalized backup id, stdout was: {detail_stdout}"
     );
 }
@@ -201,7 +201,7 @@ fn default_backup_name_uses_timestamp_and_plain_capture_flag() {
     env.write_config(false);
     env.install_fake_tmux();
 
-    let output = env.run_binary(&["-b"]);
+    let output = env.run_binary(&["backup"]);
     assert_success(&output, "unnamed backup should succeed");
 
     let backup_root = env.config_paths().backup_root(&AppConfig::default());
@@ -251,7 +251,7 @@ fn no_server_exits_cleanly() {
     env.install_fake_tmux();
 
     let output =
-        env.run_binary_with_no_server(&["-L", "sock/name", "-b", "backup_20240101_120000"]);
+        env.run_binary_with_no_server(&["-L", "sock/name", "backup", "backup_20240101_120000"]);
     assert_success(&output, "no-server backup should be a clean no-op");
 
     let named_root = env
@@ -277,6 +277,29 @@ fn no_server_exits_cleanly() {
     assert!(
         !log.lines().any(|line| line.contains("capture-pane")),
         "no-server path should not capture panes, log was:\n{log}"
+    );
+}
+
+#[test]
+fn legacy_socket_flag_is_rejected_before_any_tmux_call() {
+    let env = TestEnv::new("legacy-socket-flag");
+    env.write_config(true);
+    env.install_fake_tmux();
+
+    let output = env.run_binary(&["--socket", "sock/name", "backup", "backup_20240101_120000"]);
+    assert!(
+        !output.status.success(),
+        "legacy --socket flag should exit nonzero: {output:?}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unexpected argument '--socket' found"),
+        "expected clap to reject legacy --socket, stderr was: {stderr}"
+    );
+    assert!(
+        env.read_fake_log().trim().is_empty(),
+        "legacy --socket must fail before any tmux command is attempted"
     );
 }
 

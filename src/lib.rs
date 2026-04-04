@@ -9,6 +9,7 @@ pub mod model;
 pub mod restore;
 pub mod storage;
 pub mod tmux;
+pub mod ui;
 
 pub const BINARY_NAME: &str = "remux";
 pub const HOME_DIR_NAME: &str = ".remux";

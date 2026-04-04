@@ -53,7 +53,7 @@ pub enum BackupOutcome {
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error(
-        "(backup -b):the given backup name exists already, aborted. name:{backup_id} path:{}",
+        "backup aborted: the given backup name already exists. name:{backup_id} path:{}",
         path.display()
     )]
     DuplicateBackupId { backup_id: String, path: PathBuf },

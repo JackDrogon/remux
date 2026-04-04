@@ -1,4 +1,4 @@
-use crate::model::Tmux;
+use crate::{model::Tmux, ui};
 
 use super::catalog::BackupEntry;
 
@@ -6,16 +6,16 @@ const LIST_WIDTH: usize = 72;
 const TREE_SPACE: &str = "        ";
 
 pub fn no_backups_message() -> &'static str {
-    "No backup was created yet.\nremux -b [name] to create backup"
+    "No backups yet.\nCreate one with: remux backup [name]"
 }
 
 pub fn render_summary(backups: &[BackupEntry]) -> String {
     let mut lines = Vec::new();
+    lines.push("Saved backups".to_string());
     lines.push(repeat_line('='));
     lines.push(format!(
-        " {:>2} {}",
-        "No.",
-        format_short_info_columns("Name", "Sessions", "Created on")
+        " {:>2} {:<17} {:<30} {}",
+        "No.", "Name", "Sessions", "Created"
     ));
     lines.push(repeat_line('='));
 
@@ -29,25 +29,22 @@ pub fn render_summary(backups: &[BackupEntry]) -> String {
     }
 
     lines.push(repeat_line('-'));
-    lines.push(format!("{:>LIST_WIDTH$}", "Latest default backup with (*)"));
+    lines.push("(*) first backup in this view".to_string());
     lines.join("\n")
 }
 
 pub fn render_detail(entry: &BackupEntry) -> String {
     format!(
-        "Details of backup:{}\n{}\n{}",
-        entry.id,
-        repeat_line('='),
+        "{}\n{}",
+        ui::detail_header(&entry.id, false),
         render_detail_body(&entry.snapshot)
     )
 }
 
 pub fn render_interactive_detail(entry: &BackupEntry) -> String {
     format!(
-        "{}\nDetails of backup:{}\n{}\n{}\n{}",
-        repeat_line('>'),
-        entry.id,
-        repeat_line('>'),
+        "{}\n{}\n{}",
+        ui::detail_header(&entry.id, true),
         render_detail_body(&entry.snapshot),
         repeat_line('<')
     )

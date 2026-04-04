@@ -6,23 +6,29 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use remux::config::ConfigPaths;
 
 #[test]
-fn help_lists_option_inventory_and_config_path() {
+fn help_shows_branding_commands_and_footer() {
     let temp_home = TempHome::new("help-output");
-    let output = run_binary(temp_home.path(), ["-h"]);
+    let output = run_binary(temp_home.path(), ["--help"]);
     assert_success(&output, "help output should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     for expected in [
-        "-h                  print help message",
-        "-v                  version",
-        "-l [name]           list backup info",
-        "with [name]:    show detailed backup info by name",
-        "without [name]: show brief and detailed info interactively",
-        "-d [name]           delete a backup",
-        "-b [name]           backup current tmux sessions",
-        "-r [name]           restore tmux sessions from backup",
-        "-ri                 restore sessions interactively",
-        "-L [socket-name]    use the given tmux socket name",
+        "____  ________  ______  __",
+        "remux 0.1.0",
+        "Usage: remux [OPTIONS] <COMMAND>",
+        "Commands:",
+        "backup",
+        "Capture current tmux sessions",
+        "list",
+        "Inspect backups",
+        "delete",
+        "Delete backups",
+        "restore",
+        "Restore tmux sessions from backup",
+        "Options:",
+        "-L <socket-name>",
+        "-V, --version",
+        "Examples:",
         "config file: $HOME/.remux/config.toml",
     ] {
         assert!(
@@ -33,9 +39,29 @@ fn help_lists_option_inventory_and_config_path() {
 }
 
 #[test]
-fn version_output_is_stable_and_bootstraps_config() {
+fn no_args_now_show_help_like_a_clap_cli() {
+    let temp_home = TempHome::new("help-no-args");
+    let output = run_binary(temp_home.path(), []);
+    assert_success(&output, "no-arg invocation should now show help");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Usage: remux [OPTIONS] <COMMAND>"),
+        "expected help output when no args are supplied, got:\n{stdout}"
+    );
+
+    let config_file = ConfigPaths::from_home(temp_home.path()).config_file;
+    assert!(
+        !config_file.exists(),
+        "help-on-missing-command should not need to bootstrap config at {}",
+        config_file.display()
+    );
+}
+
+#[test]
+fn version_output_is_stable_and_does_not_require_config_bootstrap() {
     let temp_home = TempHome::new("version-output");
-    let output = run_binary(temp_home.path(), ["-v"]);
+    let output = run_binary(temp_home.path(), ["--version"]);
     assert_success(&output, "version output should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -43,8 +69,33 @@ fn version_output_is_stable_and_bootstraps_config() {
 
     let config_file = ConfigPaths::from_home(temp_home.path()).config_file;
     assert!(
-        config_file.is_file(),
-        "version should still bootstrap config at {}",
+        !config_file.exists(),
+        "version should not need to bootstrap config at {}",
+        config_file.display()
+    );
+}
+
+#[test]
+fn clap_parse_errors_do_not_require_config_bootstrap() {
+    let temp_home = TempHome::new("parse-error-output");
+    let output = run_binary(temp_home.path(), ["--wat"]);
+    assert!(
+        !output.status.success(),
+        "unknown argument should fail: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unexpected argument '--wat' found"),
+        "expected clap parse error, got:\n{stderr}"
+    );
+
+    let config_file = ConfigPaths::from_home(temp_home.path()).config_file;
+    assert!(
+        !config_file.exists(),
+        "parse errors should not need to bootstrap config at {}",
         config_file.display()
     );
 }

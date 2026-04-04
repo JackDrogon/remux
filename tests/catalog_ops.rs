@@ -57,17 +57,17 @@ fn named_socket_listing_is_isolated() {
 
     let detail = run_binary(
         temp_home.path(),
-        ["-L", "sockA", "-l", "backup_20240102_120000"],
+        ["-L", "sockA", "list", "backup_20240102_120000"],
     );
     assert!(detail.status.success(), "named detail failed: {detail:?}");
     let detail_stdout = String::from_utf8_lossy(&detail.stdout);
-    assert!(detail_stdout.contains("Details of backup:backup_20240102_120000"));
+    assert!(detail_stdout.contains("Backup: backup_20240102_120000"));
     assert!(detail_stdout.contains("─Session─┬─[ops] (1 windows):"));
     assert!(detail_stdout.contains("─Pane (0) /srv/ops"));
 
     let missing_from_active_root = run_binary(
         temp_home.path(),
-        ["-L", "sockA", "-l", "backup_20240101_120000"],
+        ["-L", "sockA", "list", "backup_20240101_120000"],
     );
     assert!(
         !missing_from_active_root.status.success(),
@@ -106,7 +106,7 @@ fn delete_named_backup_succeeds() {
 
     let delete = run_binary(
         temp_home.path(),
-        ["-L", "sockA", "-d", "backup_20240102_120000"],
+        ["-L", "sockA", "delete", "backup_20240102_120000"],
     );
     assert!(delete.status.success(), "named delete failed: {delete:?}");
     let delete_stdout = String::from_utf8_lossy(&delete.stdout);
@@ -130,7 +130,10 @@ fn delete_missing_backup_fails() {
         &["/srv/ops"],
     );
 
-    let delete = run_binary(temp_home.path(), ["-L", "sockA", "-d", "missing_backup"]);
+    let delete = run_binary(
+        temp_home.path(),
+        ["-L", "sockA", "delete", "missing_backup"],
+    );
     assert!(
         !delete.status.success(),
         "missing named delete should return nonzero"

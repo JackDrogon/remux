@@ -24,10 +24,11 @@ After installation, the binary is available as `remux`.
 ## Usage
 
 ```bash
-remux -b
-remux -l
-remux -r
-remux -L sockA -b backup_20240101_120000
+remux backup
+remux list
+remux restore
+remux restore --interactive
+remux -L sockA backup backup_20240101_120000
 ```
 
 Backups are written to `~/.remux/backup` by default. When `-L <socket-name>` is active, remux

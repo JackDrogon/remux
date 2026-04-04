@@ -12,7 +12,7 @@ fn backup_list_and_delete_work_against_real_tmux() {
     env.start_session("work", "editor");
 
     let backup_name = "backup_20240101_120000";
-    let backup_output = env.run_binary(&["-L", env.socket_name(), "-b", backup_name]);
+    let backup_output = env.run_binary(&["-L", env.socket_name(), "backup", backup_name]);
     assert_success(&backup_output, "live tmux backup should succeed");
 
     let backup_dir = env.backup_dir(backup_name);
@@ -37,12 +37,12 @@ fn backup_list_and_delete_work_against_real_tmux() {
         "expected backup success message, stdout was: {backup_stdout}"
     );
 
-    let list_output = env.run_binary(&["-L", env.socket_name(), "-l", backup_name]);
+    let list_output = env.run_binary(&["-L", env.socket_name(), "list", backup_name]);
     assert_success(&list_output, "listing a live-created backup should succeed");
 
     let list_stdout = String::from_utf8_lossy(&list_output.stdout);
     assert!(
-        list_stdout.contains(&format!("Details of backup:{backup_name}")),
+        list_stdout.contains(&format!("Backup: {backup_name}")),
         "expected detail header, stdout was: {list_stdout}"
     );
     assert!(
@@ -54,7 +54,7 @@ fn backup_list_and_delete_work_against_real_tmux() {
         "expected window detail, stdout was: {list_stdout}"
     );
 
-    let delete_output = env.run_binary(&["-L", env.socket_name(), "-d", backup_name]);
+    let delete_output = env.run_binary(&["-L", env.socket_name(), "delete", backup_name]);
     assert_success(
         &delete_output,
         "deleting a live-created backup should succeed",
@@ -73,13 +73,18 @@ fn restore_recreates_session_against_real_tmux() {
     env.start_session("restoreme", "editor");
 
     let backup_name = "backup_20240101_130000";
-    let backup_output = env.run_binary(&["-L", env.socket_name(), "-b", backup_name]);
+    let backup_output = env.run_binary(&["-L", env.socket_name(), "backup", backup_name]);
     assert_success(&backup_output, "backup before live restore should succeed");
 
     env.kill_server();
 
-    let restore_output = env.run_binary(&["-L", env.socket_name(), "-r", backup_name]);
+    let restore_output = env.run_binary(&["-L", env.socket_name(), "restore", backup_name]);
     assert_success(&restore_output, "live tmux restore should succeed");
+    let restore_stdout = String::from_utf8_lossy(&restore_output.stdout);
+    assert!(
+        restore_stdout.contains(&format!("Backup {backup_name} was restored")),
+        "expected restore success message, stdout was: {restore_stdout}"
+    );
 
     let sessions = env.tmux_stdout(&["list-sessions", "-F", "#S"]);
     assert!(

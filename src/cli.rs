@@ -1,50 +1,33 @@
 use std::io;
 
-use thiserror::Error;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, error::ErrorKind as ClapErrorKind};
 
 use crate::{
     BINARY_NAME, backup,
     config::{AppState, ExecutionOptions},
     error::{AppError, AppResult},
-    interactive, restore,
+    interactive, restore, ui,
 };
+
+const CLI_AFTER_HELP: &str = concat!(
+    "Examples:\n",
+    "  remux backup\n",
+    "  remux backup sprint_demo\n",
+    "  remux list\n",
+    "  remux restore\n",
+    "  remux restore --interactive\n",
+    "  remux -L sockA backup backup_20240101_120000\n\n",
+    "Files:\n",
+    "  config file: $HOME/.remux/config.toml"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Help,
-    Version,
     List,
     Delete,
     Backup,
     Restore,
     InteractiveRestore,
-}
-
-impl Action {
-    pub fn from_flag(flag: &str) -> Option<Self> {
-        match flag {
-            "-h" => Some(Self::Help),
-            "-v" => Some(Self::Version),
-            "-l" => Some(Self::List),
-            "-d" => Some(Self::Delete),
-            "-b" => Some(Self::Backup),
-            "-r" => Some(Self::Restore),
-            "-ri" => Some(Self::InteractiveRestore),
-            _ => None,
-        }
-    }
-
-    pub fn flag(self) -> &'static str {
-        match self {
-            Self::Help => "-h",
-            Self::Version => "-v",
-            Self::List => "-l",
-            Self::Delete => "-d",
-            Self::Backup => "-b",
-            Self::Restore => "-r",
-            Self::InteractiveRestore => "-ri",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,16 +37,86 @@ pub struct CliArgs {
     pub action_arg: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum CliError {
-    #[error("missing socket name for -L")]
-    MissingSocketName,
-    #[error("missing action")]
-    MissingAction,
-    #[error("too many arguments")]
-    TooManyArguments,
-    #[error("unknown action: {0}")]
-    UnknownAction(String),
+#[derive(Debug)]
+pub struct CliError(clap::Error);
+
+impl CliError {
+    pub fn kind(&self) -> ClapErrorKind {
+        self.0.kind()
+    }
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for CliError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+impl From<clap::Error> for CliError {
+    fn from(value: clap::Error) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(
+    name = BINARY_NAME,
+    version,
+    disable_help_subcommand = true,
+    subcommand_required = true,
+    arg_required_else_help = true,
+    propagate_version = true,
+    next_line_help = true
+)]
+struct Cli {
+    #[arg(
+        short = 'L',
+        global = true,
+        value_name = "socket-name",
+        help = "Use socket-name for the tmux server socket",
+        long_help = "Use socket-name for the tmux server socket. The default socket is named default, and a different socket-name allows multiple independent tmux servers."
+    )]
+    socket_name: Option<String>,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum Commands {
+    #[command(about = "Capture current tmux sessions")]
+    Backup {
+        #[arg(value_name = "name", help = "Save using the provided backup name")]
+        name: Option<String>,
+    },
+    #[command(about = "Inspect backups")]
+    List {
+        #[arg(value_name = "name", help = "Show detailed backup info by name")]
+        name: Option<String>,
+    },
+    #[command(about = "Delete backups")]
+    Delete {
+        #[arg(value_name = "name", help = "Delete the named backup directly")]
+        name: Option<String>,
+    },
+    #[command(about = "Restore tmux sessions from backup")]
+    Restore {
+        #[arg(value_name = "name", help = "Restore the named backup")]
+        name: Option<String>,
+
+        #[arg(
+            long,
+            help = "Open the interactive restore picker",
+            conflicts_with = "name"
+        )]
+        interactive: bool,
+    },
 }
 
 pub fn parse_cli_args<I, S>(argv: I) -> Result<CliArgs, CliError>
@@ -72,24 +125,9 @@ where
     S: Into<String>,
 {
     let args = argv.into_iter().map(Into::into).collect::<Vec<String>>();
-    let mut state = CliArgsState::default();
-    let mut idx = 1;
-
-    while idx < args.len() {
-        let arg = &args[idx];
-
-        if arg == "-L" {
-            state.socket_name = read_socket_name(&args, idx)?;
-            idx += 2;
-            continue;
-        }
-
-        state.push_positional(arg)?;
-
-        idx += 1;
-    }
-
-    state.finish()
+    let matches = build_cli().try_get_matches_from(args)?;
+    let cli = Cli::from_arg_matches(&matches)?;
+    Ok(cli.into_cli_args())
 }
 
 pub fn run<I, S>(argv: I) -> AppResult<()>
@@ -97,37 +135,79 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
+    let args = argv.into_iter().map(Into::into).collect::<Vec<String>>();
+
+    let parsed = match parse_cli_args(args) {
+        Ok(parsed) => parsed,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ClapErrorKind::DisplayHelp
+                    | ClapErrorKind::DisplayVersion
+                    | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) =>
+        {
+            print!("{error}");
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+
     let mut config = AppState::load()?;
-    let args = parse_cli_args(argv)?;
     config.set_execution_options(ExecutionOptions::with_socket_name(
-        args.socket_name.as_deref(),
+        parsed.socket_name.as_deref(),
     ));
-    dispatch(args, &config)
+    dispatch(parsed, &config)
 }
 
 pub fn render_error(error: &AppError) -> String {
     match error {
-        AppError::Cli(error) => format!("{error}\n{}", usage_text()),
+        AppError::Cli(error) => error.to_string().trim_end().to_string(),
         _ => error.to_string(),
     }
 }
 
 pub fn usage_text() -> String {
-    format!(
-        "Usage: {BINARY_NAME} [OPTIONS]\n\nOptions:\n  -h                  print help message\n\n  -v                  version\n\n  -l [name]           list backup info\n      with [name]:    show detailed backup info by name\n      without [name]: show brief and detailed info interactively\n\n  -d [name]           delete a backup\n      with [name]:    delete by given name\n      without [name]: delete interactively\n\n  -b [name]           backup current tmux sessions\n      with [name]:    name the backup with given name\n      without [name]: name the backup with default name(timestamp)\n\n  -r [name]           restore tmux sessions from backup\n      with [name]:    restore sessions by backup name\n      without [name]: restore from the latest backup\n\n  -ri                 restore sessions interactively\n  -L [socket-name]    use the given tmux socket name\n  config file: $HOME/.remux/config.toml"
-    )
+    build_cli().render_long_help().to_string()
+}
+
+impl Cli {
+    fn into_cli_args(self) -> CliArgs {
+        let (action, action_arg) = match self.command {
+            Commands::Backup { name } => (Action::Backup, name),
+            Commands::List { name } => (Action::List, name),
+            Commands::Delete { name } => (Action::Delete, name),
+            Commands::Restore {
+                name: _,
+                interactive: true,
+            } => (Action::InteractiveRestore, None),
+            Commands::Restore {
+                name,
+                interactive: false,
+            } => (Action::Restore, name),
+        };
+
+        CliArgs {
+            socket_name: self.socket_name,
+            action,
+            action_arg,
+        }
+    }
+}
+
+fn build_cli() -> clap::Command {
+    Cli::command()
+        .disable_colored_help(true)
+        .before_help(ui::brand_block())
+        .after_help(CLI_AFTER_HELP)
+        .help_template(
+            "{before-help}\nUsage: {usage}\n\nCommands:\n{subcommands}\nOptions:\n{options}{after-help}\n",
+        )
+        .subcommand_help_heading("Commands")
 }
 
 fn dispatch(args: CliArgs, config: &AppState) -> AppResult<()> {
     match args.action {
-        Action::Help => {
-            println!("{}", usage_text());
-            Ok(())
-        }
-        Action::Version => {
-            println!("{} {}", BINARY_NAME, env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
         Action::List => handle_list(config, args.action_arg.as_deref()),
         Action::Delete => match args.action_arg.as_deref() {
             Some(backup_name) => do_delete(config, backup_name),
@@ -172,6 +252,10 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
 
 fn do_restore(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
     restore::restore_from_config(config, action_arg)?;
+    match action_arg {
+        Some(backup_name) => println!("Backup {backup_name} was restored"),
+        None => println!("Latest backup was restored"),
+    }
     Ok(())
 }
 
@@ -188,47 +272,6 @@ fn interactive_delete(config: &AppState) -> AppResult<()> {
 fn interactive_restore(config: &AppState) -> AppResult<()> {
     with_stdio_locks(|input, output| interactive::interactive_restore(config, input, output))
         .map_err(Into::into)
-}
-
-#[derive(Default)]
-struct CliArgsState {
-    socket_name: Option<String>,
-    action_flag: Option<String>,
-    action_arg: Option<String>,
-}
-
-impl CliArgsState {
-    fn push_positional(&mut self, arg: &str) -> Result<(), CliError> {
-        if self.action_flag.is_none() {
-            self.action_flag = Some(arg.to_string());
-        } else if self.action_arg.is_none() {
-            self.action_arg = Some(arg.to_string());
-        } else {
-            return Err(CliError::TooManyArguments);
-        }
-
-        Ok(())
-    }
-
-    fn finish(self) -> Result<CliArgs, CliError> {
-        let action_flag = self.action_flag.ok_or(CliError::MissingAction)?;
-        let action = Action::from_flag(&action_flag).ok_or(CliError::UnknownAction(action_flag))?;
-
-        Ok(CliArgs {
-            socket_name: self.socket_name,
-            action,
-            action_arg: self.action_arg,
-        })
-    }
-}
-
-fn read_socket_name(args: &[String], index: usize) -> Result<Option<String>, CliError> {
-    let next_arg = args.get(index + 1).ok_or(CliError::MissingSocketName)?;
-    if next_arg.is_empty() {
-        return Err(CliError::MissingSocketName);
-    }
-
-    Ok(Some(next_arg.clone()))
 }
 
 fn with_stdio_locks<F>(run: F) -> Result<(), interactive::InteractiveError>

@@ -23,16 +23,20 @@ fn interactive_list_without_arg_shows_details_until_quit() {
         &["/tmp/work"],
     );
 
-    let output = env.run_binary_with_stdin(&["-l"], "1\nq\n");
+    let output = env.run_binary_with_stdin(&["list"], "1\nq\n");
     assert_success(&output, "interactive list should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("remux> Please give backup No. (press q to exit):"),
+        stdout.contains("Browse backups"),
+        "expected interactive header, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("remux[list]> Select backup number (q to exit):"),
         "expected interactive selection prompt, stdout was: {stdout}"
     );
     assert!(
-        stdout.contains("Details of backup:backup_20240101_120000"),
+        stdout.contains("Backup: backup_20240101_120000"),
         "expected selected backup details, stdout was: {stdout}"
     );
     assert!(
@@ -75,13 +79,17 @@ fn interactive_list_orders_backups_by_backup_id_desc_like_python() {
         &["/tmp/name-middle"],
     );
 
-    let output = env.run_binary_with_stdin(&["-l"], "1\nq\n");
+    let output = env.run_binary_with_stdin(&["list"], "1\nq\n");
     assert_success(&output, "interactive list should order backups like python");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Details of backup:backup_20240103_120000"),
+        stdout.contains("Backup: backup_20240103_120000"),
         "expected list index 1 to resolve to lexicographically latest backup id, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("(*) first backup in this view"),
+        "expected view-scoped first-item hint, stdout was: {stdout}"
     );
 }
 
@@ -97,7 +105,7 @@ fn interactive_list_without_input_returns_summary_successfully() {
         &["/tmp/work"],
     );
 
-    let output = env.run_binary_with_stdin(&["-l"], "");
+    let output = env.run_binary_with_stdin(&["list"], "");
     assert_success(
         &output,
         "interactive list should allow EOF after printing summary",
@@ -109,7 +117,7 @@ fn interactive_list_without_input_returns_summary_successfully() {
         "expected backup summary to be printed, stdout was: {stdout}"
     );
     assert!(
-        stdout.contains("remux> Please give backup No. (press q to exit):"),
+        stdout.contains("remux[list]> Select backup number (q to exit):"),
         "expected prompt to still be shown before EOF exit, stdout was: {stdout}"
     );
 
@@ -132,12 +140,16 @@ fn interactive_delete_without_arg_confirms_before_deleting() {
         &["/tmp/work"],
     );
 
-    let output = env.run_binary_with_stdin(&["-d"], "1\nyes\n");
+    let output = env.run_binary_with_stdin(&["delete"], "1\nyes\n");
     assert_success(&output, "interactive delete should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Delete backup backup_20240101_120000? [yes|no]"),
+        stdout.contains("Delete backups"),
+        "expected delete mode header, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("remux[delete]> delete backup backup_20240101_120000? [yes|no]"),
         "expected delete confirmation prompt, stdout was: {stdout}"
     );
     assert!(
@@ -157,12 +169,16 @@ fn interactive_restore_accepts_scripted_input() {
     env.install_fake_tmux();
     env.write_restore_backup(None, "backup_20240101_120000");
 
-    let output = env.run_binary_with_stdin(&["-ri"], "1\nyes\n");
+    let output = env.run_binary_with_stdin(&["restore", "--interactive"], "1\nyes\n");
     assert_success(&output, "interactive restore should succeed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("restore backup_20240101_120000? [yes|no]"),
+        stdout.contains("Restore backups"),
+        "expected restore mode header, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("remux[restore]> restore backup backup_20240101_120000? [yes|no]"),
         "expected restore confirmation prompt, stdout was: {stdout}"
     );
     assert!(
@@ -194,7 +210,7 @@ fn invalid_input_and_eof_are_reported() {
     );
 
     let invalid_output =
-        invalid_env.run_binary_with_stdin(&["-d"], "\nhello\n9\n1\nmaybe\nno\nq\n");
+        invalid_env.run_binary_with_stdin(&["delete"], "\nhello\n9\n1\nmaybe\nno\nq\n");
     assert_success(
         &invalid_output,
         "interactive delete should recover from invalid input and let the user quit",
@@ -209,7 +225,7 @@ fn invalid_input_and_eof_are_reported() {
         "expected non-numeric index error, stdout was: {invalid_stdout}"
     );
     assert!(
-        invalid_stdout.contains("Invalid index: 9"),
+        invalid_stdout.contains("Invalid index: 9 (expected 1..=1)"),
         "expected out-of-range index error, stdout was: {invalid_stdout}"
     );
     assert!(
@@ -231,7 +247,7 @@ fn invalid_input_and_eof_are_reported() {
         &["/tmp/work"],
     );
 
-    let eof_output = eof_env.run_binary_with_stdin(&["-d"], "");
+    let eof_output = eof_env.run_binary_with_stdin(&["delete"], "");
     assert!(
         !eof_output.status.success(),
         "EOF should return a nonzero exit for interactive delete"

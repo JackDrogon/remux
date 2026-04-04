@@ -2,7 +2,7 @@ use std::io::{self, BufRead, Write};
 
 use thiserror::Error;
 
-use crate::{config::AppState, restore, storage};
+use crate::{config::AppState, restore, storage, ui};
 
 #[derive(Debug, Error)]
 pub enum InteractiveError {
@@ -23,6 +23,16 @@ enum FlowMode {
     Restore,
 }
 
+impl FlowMode {
+    fn ui_mode(self) -> ui::InteractiveMode {
+        match self {
+            Self::Inspect => ui::InteractiveMode::Inspect,
+            Self::Delete => ui::InteractiveMode::Delete,
+            Self::Restore => ui::InteractiveMode::Restore,
+        }
+    }
+}
+
 pub fn interactive_list<R, W>(
     config: &AppState,
     input: &mut R,
@@ -32,31 +42,23 @@ where
     R: BufRead,
     W: Write,
 {
-    let backups = load_listing_backups(config)?;
-    if backups.is_empty() {
-        show_no_backups(output)?;
-        return Ok(());
-    }
-
-    let mut detail_cache = vec![None; backups.len()];
-
     loop {
+        let backups = load_listing_backups(config)?;
+        if backups.is_empty() {
+            show_no_backups(output)?;
+            return Ok(());
+        }
+
+        render_interactive_header(output, FlowMode::Inspect, backups.len())?;
         render_backup_summary(output, &backups)?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
         else {
             return Ok(());
         };
 
-        if detail_cache[index].is_none() {
-            let detail = load_backup_detail(config, &backups[index].id)?;
-            detail_cache[index] = Some(detail);
-        }
+        let detail = load_backup_detail(config, &backups[index].id)?;
 
-        let detail = detail_cache[index]
-            .as_ref()
-            .expect("interactive list detail cache should be populated");
-
-        render_interactive_backup_detail(output, detail)?;
+        render_interactive_backup_detail(output, &detail)?;
     }
 }
 
@@ -101,6 +103,7 @@ where
             return Ok(());
         }
 
+        render_interactive_header(output, mode, backups.len())?;
         render_backup_summary(output, &backups)?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), mode)? else {
             return Ok(());
@@ -116,7 +119,7 @@ where
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &format!("remux> Delete backup {selected_backup}? [yes|no] "),
+                    &ui::confirmation_prompt(mode.ui_mode(), &selected_backup),
                 )? {
                     continue;
                 }
@@ -128,7 +131,7 @@ where
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &format!("remux> restore {selected_backup}? [yes|no] "),
+                    &ui::confirmation_prompt(mode.ui_mode(), &selected_backup),
                 )? {
                     continue;
                 }
@@ -152,7 +155,8 @@ where
     W: Write,
 {
     loop {
-        prompt(output, "remux> Please give backup No. (press q to exit): ")?;
+        let prompt_text = ui::selection_prompt(mode.ui_mode());
+        prompt(output, &prompt_text)?;
 
         let Some(line) = read_line(input)? else {
             return match mode {
@@ -174,12 +178,18 @@ where
         }
 
         let Ok(index) = trimmed.parse::<usize>() else {
-            write_line(output, &format!("Invalid index: {trimmed}"))?;
+            write_line(
+                output,
+                &format!("Invalid index: {trimmed} (expected 1..={backup_count})"),
+            )?;
             continue;
         };
 
         if !(1..=backup_count).contains(&index) {
-            write_line(output, &format!("Invalid index: {trimmed}"))?;
+            write_line(
+                output,
+                &format!("Invalid index: {trimmed} (expected 1..={backup_count})"),
+            )?;
             continue;
         }
 
@@ -282,6 +292,20 @@ where
     W: Write,
 {
     write_line(output, &storage::render_interactive_detail(detail))
+}
+
+fn render_interactive_header<W>(
+    output: &mut W,
+    mode: FlowMode,
+    backup_count: usize,
+) -> Result<(), InteractiveError>
+where
+    W: Write,
+{
+    write_line(
+        output,
+        &ui::interactive_header(mode.ui_mode(), backup_count),
+    )
 }
 
 fn show_no_backups<W>(output: &mut W) -> Result<(), InteractiveError>

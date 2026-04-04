@@ -14,42 +14,38 @@ backup formats while providing a robust CLI for Linux environments.
 - `ref/retmux/`: Reference Python implementation for behavior parity.
 - `.config/`: Tool-specific configurations (e.g., nextest).
 
-## CORE MODULES
-- **Tmux Adapter**: `src/tmux.rs` (exclusive gate for tmux calls).
-- **Persistence**: `src/backup.rs` and `src/snapshot.rs` (JSON markers).
-- **Management**: `src/catalog.rs` (index) and `src/restore.rs` (engine).
-- **Config**: `src/config/` (hierarchical loading and path derivation).
+## WHERE TO LOOK
+- **Source implementation**: Start with `src/AGENTS.md` for module boundaries, persistence, tmux interaction, and runtime path logic.
+- **Test behavior**: Start with `tests/AGENTS.md` for fixture policy, isolation rules, and live-tmux verification.
+- **Legacy parity**: Start with `ref/retmux/AGENTS.md` when behavior must match the Python reference implementation.
+- **Daily commands**: Use `justfile` for local recipes; CI expectations live in `.github/workflows/ci.yml`.
+
+## DEVELOPMENT GUIDELINES
+This project uses `just` as the canonical daily entrypoint so local runs stay aligned with CI flags and recipe ordering.
+- **Default**: Use `just <recipe>` for routine workflows (build, test, lint, format, check, run).
+- **Exceptions**: Raw toolchain commands (`cargo`, `clippy`, `nextest`, `dprint`, `typos`) are allowed only when debugging a recipe gap or investigating CI-only flag behavior.
+- **Reporting**: When using a raw command, explicitly report why `just` was insufficient and which raw command was used.
+- **Daily Entrypoints**:
+  - `just build`: Standard debug build.
+  - `just run -- -h`: View all CLI actions (Backup, List, Restore, Interactive).
+  - `just test`: Runs unit tests and doctests.
+  - `just test-live`: Runs integration tests against a real tmux server (requires `tmux`).
+  - `just check`: Full local gate (fmt, dprint, typos, clippy, test, test-doc, test-live).
 
 ## CONVENTIONS
 - **Backup Roots**: Default to `~/.remux/`. Use socket-based isolation under `backup-sockets/`.
-- **Determinism**: Backups are sorted by `mtime desc` then `id desc`.
-- **Error Handling**: Use `src/error.rs` types; avoid `panic!` in library code.
 - **Compatibility**: Must decode legacy JSON markers (`__class__`) and handle optional `Window.name`.
-- **Testing**: Use `nextest` for unit/integration; `live_tmux` tests must be ignored by default.
+- **Execution flow**: Root AGENTS defines repo-wide rules; implementation and test specifics belong in the child AGENTS files.
+- **Section shape**: Child AGENTS should use domain-appropriate sections and do not need to mirror root headings like `DEVELOPMENT GUIDELINES` or `NOTES` unless those sections add real signal.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 - **Leaking Host State**: Never run live tests without a temporary `HOME`.
-- **Direct I/O in Capture**: Keep the capture core in `backup.rs` decoupled from CLI printing.
 - **Duplicate Path Logic**: Always derive paths through `RuntimeConfig` to ensure socket isolation.
-- **Mutable Tmux during Validation**: Validate backup integrity before mutating the real tmux server.
+- **Routine Raw Toolchain Use**: Do not bypass `just` for normal build/test/lint/format/check workflows.
 
 ## UNIQUE STYLES
 - **Sync Over Async**: Uses `std::process::Command` for deterministic tmux interaction.
 - **Telegraphic CLI**: Minimalist output; errors use stable messages for legacy parity.
-- **Structural Decoding**: Rust structs overlay optional JSON fields to preserve legacy defaults.
-
-## JUSTFILE-FIRST EXECUTION POLICY
-This policy ensures local/CI consistency and prevents deviation from project-standard toolchain flags.
-- **Default**: Use `just <recipe>` for all routine workflows (build, test, lint, format, check).
-- **Exceptions**: Raw toolchain commands (cargo, clippy, nextest, dprint, typos) are permitted only when debugging a recipe gap or investigating specific CI-only flag behavior.
-- **Reporting**: When an exception is used, the agent must explicitly state the reason and the specific command in its output.
-
-## COMMANDS
-- `just build`: Standard debug build.
-- `just test`: Runs unit tests and doctests.
-- `just test-live`: Runs integration tests against a real tmux server (requires `tmux`).
-- `just check`: Full gate (fmt, dprint, typos, clippy, test, test-doc, test-live).
-- `just run -- -h`: View all CLI actions (Backup, List, Restore, Interactive).
 
 ## NOTES
 - **Runtime**: Linux + tmux on `PATH` + Rust stable (1.85+).

@@ -41,9 +41,9 @@ pub enum RestoreError {
         #[source]
         source: io::Error,
     },
-    #[error("(restore -r): backup dir is empty, nothing to restore: {}", path.display())]
+    #[error("backup directory is empty, nothing to restore: {}", path.display())]
     NoBackups { path: PathBuf },
-    #[error("(restore -r): cannot find given backup name:{name} under {}", path.display())]
+    #[error("cannot find given backup name:{name} under {}", path.display())]
     BackupNotFound { name: String, path: PathBuf },
     #[error("failed to load snapshot {}: {source}", path.display())]
     SnapshotLoad {
