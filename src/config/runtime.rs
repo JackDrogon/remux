@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use super::{loader, paths::normalize_socket_name, AppConfig, ConfigError, ConfigPaths};
+use super::{AppConfig, ConfigError, ConfigPaths, loader, paths::normalize_socket_name};
 use crate::tmux::tmux_command_prefix;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

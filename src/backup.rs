@@ -7,7 +7,7 @@
 //! and avoids mixing filesystem concerns into the capture path.
 
 use std::collections::BTreeMap;
-use std::ffi::{c_char, c_int, c_long, CStr};
+use std::ffi::{CStr, c_char, c_int, c_long};
 use std::fmt;
 use std::io;
 use std::mem::MaybeUninit;
@@ -19,7 +19,7 @@ use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
 use crate::snapshot::{self, SnapshotError};
-use crate::tmux::{TmuxClient, TmuxRuntimeOptions, OUTPUT_SEPARATOR};
+use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions};
 
 const BACKUP_ID_TIME_FORMAT: &[u8] = b"%Y%m%d_%H%M%S\0";
 const CREATE_TIME_FORMAT: &[u8] = b"%Y-%m-%d %H:%M:%S\0";

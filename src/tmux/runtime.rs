@@ -1,4 +1,4 @@
-use super::{tmux_command_prefix, TmuxAdapter};
+use super::{TmuxAdapter, tmux_command_prefix};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxRuntimeOptions {

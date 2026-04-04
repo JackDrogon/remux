@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use remux::error::SubprocessError;
-use remux::tmux::{TmuxAdapter, TmuxClient, TmuxCommand, TMUX_BIN};
+use remux::tmux::{TMUX_BIN, TmuxAdapter, TmuxClient, TmuxCommand};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeTmuxOutput {

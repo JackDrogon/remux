@@ -9,6 +9,7 @@ pub mod interactive;
 pub mod model;
 pub mod restore;
 pub mod snapshot;
+pub mod storage;
 pub mod tmux;
 
 pub const BINARY_NAME: &str = "remux";

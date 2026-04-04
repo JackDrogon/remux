@@ -1,13 +1,13 @@
 use std::path::Path;
 use std::time::Duration;
 
+use super::TMUX_BIN;
 use super::client::TmuxClient;
 use super::command::TmuxCommand;
 use super::error::SubprocessError;
 use super::subprocess::{
-    normalize_output_stream, CommandOutput, SubprocessExecutor, SubprocessRunner,
+    CommandOutput, SubprocessExecutor, SubprocessRunner, normalize_output_stream,
 };
-use super::TMUX_BIN;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxAdapter<E = SubprocessRunner> {
@@ -474,9 +474,11 @@ mod tests {
         let adapter =
             TmuxAdapter::from_prefix(vec!["tmux".to_string()], true).with_subprocess(fake);
 
-        assert!(adapter
-            .has_session("demo")
-            .expect("fake subprocess should be used"));
+        assert!(
+            adapter
+                .has_session("demo")
+                .expect("fake subprocess should be used")
+        );
         assert!(adapter.subprocess.bytes_calls().is_empty());
     }
 }

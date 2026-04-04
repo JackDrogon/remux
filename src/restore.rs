@@ -12,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::backup_name::{normalize_backup_name, BackupNameError};
+use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::hash::sha256_hex;
