@@ -18,7 +18,7 @@ pub fn binary_name() -> &'static str {
     BINARY_NAME
 }
 
-pub fn run<I, S>(argv: I) -> i32
+pub fn run<I, S>(argv: I) -> Result<(), error::AppError>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,

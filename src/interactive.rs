@@ -1,6 +1,20 @@
 use std::io::{self, BufRead, Write};
 
+use thiserror::Error;
+
 use crate::{config::AppState, restore, storage};
+
+#[derive(Debug, Error)]
+pub enum InteractiveError {
+    #[error("interactive I/O failed: {0}")]
+    Io(#[from] io::Error),
+    #[error("end of input while reading {context}")]
+    EndOfInput { context: &'static str },
+    #[error(transparent)]
+    Catalog(#[from] storage::CatalogError),
+    #[error(transparent)]
+    Restore(#[from] restore::RestoreError),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FlowMode {
@@ -13,7 +27,7 @@ pub fn interactive_list<R, W>(
     config: &AppState,
     input: &mut R,
     output: &mut W,
-) -> Result<(), String>
+) -> Result<(), InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -50,7 +64,7 @@ pub fn interactive_delete<R, W>(
     config: &AppState,
     input: &mut R,
     output: &mut W,
-) -> Result<(), String>
+) -> Result<(), InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -62,7 +76,7 @@ pub fn interactive_restore<R, W>(
     config: &AppState,
     input: &mut R,
     output: &mut W,
-) -> Result<(), String>
+) -> Result<(), InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -75,7 +89,7 @@ fn run_flow<R, W>(
     input: &mut R,
     output: &mut W,
     mode: FlowMode,
-) -> Result<(), String>
+) -> Result<(), InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -119,8 +133,7 @@ where
                     continue;
                 }
 
-                restore::restore_from_config(config, Some(&selected_backup))
-                    .map_err(stringify_error)?;
+                restore::restore_from_config(config, Some(&selected_backup))?;
                 write_line(output, &format!("Backup {selected_backup} was restored"))?;
                 return Ok(());
             }
@@ -133,7 +146,7 @@ fn prompt_for_backup_index<R, W>(
     output: &mut W,
     backup_count: usize,
     mode: FlowMode,
-) -> Result<Option<usize>, String>
+) -> Result<Option<usize>, InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -144,9 +157,9 @@ where
         let Some(line) = read_line(input)? else {
             return match mode {
                 FlowMode::Inspect => Ok(None),
-                FlowMode::Delete | FlowMode::Restore => {
-                    Err("end of input while reading backup selection".to_string())
-                }
+                FlowMode::Delete | FlowMode::Restore => Err(InteractiveError::EndOfInput {
+                    context: "backup selection",
+                }),
             };
         };
         let trimmed = line.trim();
@@ -178,7 +191,7 @@ fn prompt_for_confirmation<R, W>(
     input: &mut R,
     output: &mut W,
     prompt_text: &str,
-) -> Result<bool, String>
+) -> Result<bool, InteractiveError>
 where
     R: BufRead,
     W: Write,
@@ -187,7 +200,9 @@ where
         prompt(output, prompt_text)?;
 
         let Some(line) = read_line(input)? else {
-            return Err("end of input while reading confirmation".to_string());
+            return Err(InteractiveError::EndOfInput {
+                context: "confirmation",
+            });
         };
         let trimmed = line.trim();
 
@@ -207,12 +222,12 @@ where
     }
 }
 
-fn read_line<R>(input: &mut R) -> Result<Option<String>, String>
+fn read_line<R>(input: &mut R) -> Result<Option<String>, InteractiveError>
 where
     R: BufRead,
 {
     let mut line = String::new();
-    let bytes_read = input.read_line(&mut line).map_err(io_error)?;
+    let bytes_read = input.read_line(&mut line)?;
     if bytes_read == 0 {
         return Ok(None);
     }
@@ -220,38 +235,39 @@ where
     Ok(Some(line))
 }
 
-fn io_error(error: io::Error) -> String {
-    format!("interactive I/O failed: {error}")
+fn load_listing_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, InteractiveError> {
+    storage::list_backups_for_listing(config).map_err(Into::into)
 }
 
-fn stringify_error(error: impl ToString) -> String {
-    error.to_string()
+fn load_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, InteractiveError> {
+    storage::list_backups(config).map_err(Into::into)
 }
 
-fn load_listing_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, String> {
-    storage::list_backups_for_listing(config).map_err(stringify_error)
+fn load_backup_detail(
+    config: &AppState,
+    backup_id: &str,
+) -> Result<storage::BackupEntry, InteractiveError> {
+    storage::load_backup(config, backup_id).map_err(Into::into)
 }
 
-fn load_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, String> {
-    storage::list_backups(config).map_err(stringify_error)
+fn delete_backup(config: &AppState, backup_id: &str) -> Result<(), InteractiveError> {
+    storage::delete_backup(config, backup_id).map_err(Into::into)
 }
 
-fn load_backup_detail(config: &AppState, backup_id: &str) -> Result<storage::BackupEntry, String> {
-    storage::load_backup(config, backup_id).map_err(stringify_error)
-}
-
-fn delete_backup(config: &AppState, backup_id: &str) -> Result<(), String> {
-    storage::delete_backup(config, backup_id).map_err(stringify_error)
-}
-
-fn render_backup_summary<W>(output: &mut W, backups: &[storage::BackupEntry]) -> Result<(), String>
+fn render_backup_summary<W>(
+    output: &mut W,
+    backups: &[storage::BackupEntry],
+) -> Result<(), InteractiveError>
 where
     W: Write,
 {
     write_line(output, &storage::render_summary(backups))
 }
 
-fn render_backup_detail<W>(output: &mut W, detail: &storage::BackupEntry) -> Result<(), String>
+fn render_backup_detail<W>(
+    output: &mut W,
+    detail: &storage::BackupEntry,
+) -> Result<(), InteractiveError>
 where
     W: Write,
 {
@@ -261,32 +277,35 @@ where
 fn render_interactive_backup_detail<W>(
     output: &mut W,
     detail: &storage::BackupEntry,
-) -> Result<(), String>
+) -> Result<(), InteractiveError>
 where
     W: Write,
 {
     write_line(output, &storage::render_interactive_detail(detail))
 }
 
-fn show_no_backups<W>(output: &mut W) -> Result<(), String>
+fn show_no_backups<W>(output: &mut W) -> Result<(), InteractiveError>
 where
     W: Write,
 {
     write_line(output, storage::no_backups_message())?;
-    output.flush().map_err(io_error)
+    output.flush()?;
+    Ok(())
 }
 
-fn write_line<W>(output: &mut W, message: &str) -> Result<(), String>
+fn write_line<W>(output: &mut W, message: &str) -> Result<(), InteractiveError>
 where
     W: Write,
 {
-    writeln!(output, "{message}").map_err(io_error)
+    writeln!(output, "{message}")?;
+    Ok(())
 }
 
-fn prompt<W>(output: &mut W, message: &str) -> Result<(), String>
+fn prompt<W>(output: &mut W, message: &str) -> Result<(), InteractiveError>
 where
     W: Write,
 {
-    write!(output, "{message}").map_err(io_error)?;
-    output.flush().map_err(io_error)
+    write!(output, "{message}")?;
+    output.flush()?;
+    Ok(())
 }

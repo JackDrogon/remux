@@ -241,6 +241,10 @@ fn invalid_input_and_eof_are_reported() {
         eof_stderr.contains("end of input while reading backup selection"),
         "expected deterministic EOF error, stderr was: {eof_stderr}"
     );
+    assert_stable_stderr(
+        &eof_stderr,
+        "interactive EOF should keep stable stderr formatting",
+    );
     assert!(
         eof_backup.exists(),
         "EOF should not delete or mutate existing backups"
@@ -260,6 +264,13 @@ fn assert_contains(haystack: &str, needle: &str) {
     assert!(
         haystack.contains(needle),
         "expected log to contain {needle:?}, got:\n{haystack}"
+    );
+}
+
+fn assert_stable_stderr(stderr: &str, context: &str) {
+    assert!(
+        !stderr.contains("Location:") && !stderr.contains("Backtrace omitted."),
+        "{context}, stderr was: {stderr}"
     );
 }
 

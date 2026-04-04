@@ -5,10 +5,11 @@
 //! is intentionally explicit because the interactive list and the default
 //! restore target use different stability requirements.
 
-use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
+
+use thiserror::Error;
 
 use super::catalog_render;
 use super::fs_ops;
@@ -37,89 +38,38 @@ pub struct BackupEntry {
     pub snapshot: Tmux,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CatalogError {
-    InvalidBackupName(BackupNameError),
+    #[error(transparent)]
+    InvalidBackupName(#[from] BackupNameError),
+    #[error("failed to read backup catalog {}: {source}", path.display())]
     ReadCatalog {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
+    #[error("failed to read backup metadata {}: {source}", path.display())]
     ReadMetadata {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
+    #[error("failed to read backup snapshot {}: {source}", path.display())]
     ReadSnapshot {
         path: PathBuf,
+        #[source]
         source: SnapshotError,
     },
-    MissingBackupName {
-        name: String,
-        root: PathBuf,
-    },
-    NoBackups {
-        root: PathBuf,
-    },
+    #[error("cannot find given backup name:{name} under {}", root.display())]
+    MissingBackupName { name: String, root: PathBuf },
+    #[error("backup dir is empty under {}, nothing to resolve", root.display())]
+    NoBackups { root: PathBuf },
+    #[error("failed to delete backup {}: {source}", path.display())]
     DeleteBackup {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
-}
-
-impl fmt::Display for CatalogError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidBackupName(error) => write!(f, "{error}"),
-            Self::ReadCatalog { path, source } => {
-                write!(
-                    f,
-                    "failed to read backup catalog {}: {source}",
-                    path.display()
-                )
-            }
-            Self::ReadMetadata { path, source } => {
-                write!(
-                    f,
-                    "failed to read backup metadata {}: {source}",
-                    path.display()
-                )
-            }
-            Self::ReadSnapshot { path, source } => {
-                write!(
-                    f,
-                    "failed to read backup snapshot {}: {source}",
-                    path.display()
-                )
-            }
-            Self::MissingBackupName { name, root } => {
-                write!(
-                    f,
-                    "cannot find given backup name:{name} under {}",
-                    root.display()
-                )
-            }
-            Self::NoBackups { root } => write!(
-                f,
-                "backup dir is empty under {}, nothing to resolve",
-                root.display()
-            ),
-            Self::DeleteBackup { path, source } => {
-                write!(f, "failed to delete backup {}: {source}", path.display())
-            }
-        }
-    }
-}
-
-impl std::error::Error for CatalogError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidBackupName(error) => Some(error),
-            Self::ReadCatalog { source, .. }
-            | Self::ReadMetadata { source, .. }
-            | Self::DeleteBackup { source, .. } => Some(source),
-            Self::ReadSnapshot { source, .. } => Some(source),
-            Self::MissingBackupName { .. } | Self::NoBackups { .. } => None,
-        }
-    }
 }
 
 pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {

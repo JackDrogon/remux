@@ -7,11 +7,11 @@
 //! and avoids mixing filesystem concerns into the capture path.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
 use chrono::{Local, NaiveDateTime};
+use thiserror::Error;
 
 use crate::backup_name::BackupNameError;
 use crate::config::AppState;
@@ -50,73 +50,31 @@ pub enum BackupOutcome {
     NoServer,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum BackupError {
-    DuplicateBackupId {
-        backup_id: String,
-        path: PathBuf,
-    },
-    InvalidBackupName(BackupNameError),
-    Tmux(SubprocessError),
-    Snapshot(SnapshotError),
+    #[error(
+        "(backup -b):the given backup name exists already, aborted. name:{backup_id} path:{}",
+        path.display()
+    )]
+    DuplicateBackupId { backup_id: String, path: PathBuf },
+    #[error(transparent)]
+    InvalidBackupName(#[from] BackupNameError),
+    #[error(transparent)]
+    Tmux(#[from] SubprocessError),
+    #[error(transparent)]
+    Snapshot(#[from] SnapshotError),
+    #[error("failed to write {}: {source}", path.display())]
     Io {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
+    #[error("invalid tmux {command} output: {detail} (line: {line})")]
     InvalidTmuxOutput {
         command: &'static str,
         line: String,
         detail: String,
     },
-}
-
-impl fmt::Display for BackupError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DuplicateBackupId { backup_id, path } => {
-                write!(
-                    f,
-                    "(backup -b):the given backup name exists already, aborted. name:{backup_id} path:{}",
-                    path.display()
-                )
-            }
-            Self::InvalidBackupName(error) => write!(f, "{error}"),
-            Self::Tmux(error) => write!(f, "{error}"),
-            Self::Snapshot(error) => write!(f, "{error}"),
-            Self::Io { path, source } => {
-                write!(f, "failed to write {}: {source}", path.display())
-            }
-            Self::InvalidTmuxOutput {
-                command,
-                line,
-                detail,
-            } => write!(f, "invalid tmux {command} output: {detail} (line: {line})"),
-        }
-    }
-}
-
-impl std::error::Error for BackupError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidBackupName(error) => Some(error),
-            Self::Tmux(error) => Some(error),
-            Self::Snapshot(error) => Some(error),
-            Self::Io { source, .. } => Some(source),
-            Self::DuplicateBackupId { .. } | Self::InvalidTmuxOutput { .. } => None,
-        }
-    }
-}
-
-impl From<SubprocessError> for BackupError {
-    fn from(value: SubprocessError) -> Self {
-        Self::Tmux(value)
-    }
-}
-
-impl From<SnapshotError> for BackupError {
-    fn from(value: SnapshotError) -> Self {
-        Self::Snapshot(value)
-    }
 }
 
 pub fn capture_backup(

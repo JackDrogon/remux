@@ -78,6 +78,10 @@ fn named_socket_listing_is_isolated() {
         missing_stderr.contains("cannot find given backup name:backup_20240101_120000"),
         "unexpected missing-name stderr: {missing_stderr}"
     );
+    assert_stable_stderr(
+        &missing_stderr,
+        "missing named lookup should keep stable stderr formatting",
+    );
 }
 
 #[test]
@@ -136,9 +140,20 @@ fn delete_missing_backup_fails() {
         delete_stderr.contains("cannot find given backup name:missing_backup"),
         "unexpected missing-delete stderr: {delete_stderr}"
     );
+    assert_stable_stderr(
+        &delete_stderr,
+        "missing delete should keep stable stderr formatting",
+    );
     assert!(
         preserved_dir.exists(),
         "failed delete must not mutate existing backups"
+    );
+}
+
+fn assert_stable_stderr(stderr: &str, context: &str) {
+    assert!(
+        !stderr.contains("Location:") && !stderr.contains("Backtrace omitted."),
+        "{context}, stderr was: {stderr}"
     );
 }
 

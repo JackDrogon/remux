@@ -1,8 +1,11 @@
 use std::io;
 
+use thiserror::Error;
+
 use crate::{
     BINARY_NAME, backup,
     config::{AppState, ExecutionOptions},
+    error::{AppError, AppResult},
     interactive, restore,
 };
 
@@ -51,23 +54,16 @@ pub struct CliArgs {
     pub action_arg: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CliError {
+    #[error("missing socket name for -L")]
     MissingSocketName,
+    #[error("missing action")]
     MissingAction,
+    #[error("too many arguments")]
     TooManyArguments,
+    #[error("unknown action: {0}")]
     UnknownAction(String),
-}
-
-impl CliError {
-    pub fn message(&self) -> String {
-        match self {
-            Self::MissingSocketName => "missing socket name for -L".to_string(),
-            Self::MissingAction => "missing action".to_string(),
-            Self::TooManyArguments => "too many arguments".to_string(),
-            Self::UnknownAction(action) => format!("unknown action: {action}"),
-        }
-    }
 }
 
 pub fn parse_cli_args<I, S>(argv: I) -> Result<CliArgs, CliError>
@@ -96,31 +92,23 @@ where
     state.finish()
 }
 
-pub fn run<I, S>(argv: I) -> i32
+pub fn run<I, S>(argv: I) -> AppResult<()>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let mut config = match AppState::load() {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("{error}");
-            return 1;
-        }
-    };
+    let mut config = AppState::load()?;
+    let args = parse_cli_args(argv)?;
+    config.set_execution_options(ExecutionOptions::with_socket_name(
+        args.socket_name.as_deref(),
+    ));
+    dispatch(args, &config)
+}
 
-    match parse_cli_args(argv) {
-        Ok(args) => {
-            config.set_execution_options(ExecutionOptions::with_socket_name(
-                args.socket_name.as_deref(),
-            ));
-            dispatch(args, &config)
-        }
-        Err(error) => {
-            eprintln!("{}", error.message());
-            eprintln!("{}", usage_text());
-            1
-        }
+pub fn render_error(error: &AppError) -> String {
+    match error {
+        AppError::Cli(error) => format!("{error}\n{}", usage_text()),
+        _ => error.to_string(),
     }
 }
 
@@ -130,42 +118,31 @@ pub fn usage_text() -> String {
     )
 }
 
-fn dispatch(args: CliArgs, config: &AppState) -> i32 {
+fn dispatch(args: CliArgs, config: &AppState) -> AppResult<()> {
     match args.action {
         Action::Help => {
             println!("{}", usage_text());
-            0
+            Ok(())
         }
         Action::Version => {
             println!("{} {}", BINARY_NAME, env!("CARGO_PKG_VERSION"));
-            0
+            Ok(())
         }
-        Action::List => exit_from_result(handle_list(config, args.action_arg.as_deref())),
+        Action::List => handle_list(config, args.action_arg.as_deref()),
         Action::Delete => match args.action_arg.as_deref() {
-            Some(_) => exit_from_result(do_delete(config, args.action_arg.as_deref())),
-            None => exit_from_result(interactive_delete(config)),
+            Some(backup_name) => do_delete(config, backup_name),
+            None => interactive_delete(config),
         },
-        Action::Backup => exit_from_result(do_backup(config, args.action_arg.as_deref())),
-        Action::Restore => exit_from_result(do_restore(config, args.action_arg.as_deref())),
-        Action::InteractiveRestore => exit_from_result(interactive_restore(config)),
+        Action::Backup => do_backup(config, args.action_arg.as_deref()),
+        Action::Restore => do_restore(config, args.action_arg.as_deref()),
+        Action::InteractiveRestore => interactive_restore(config),
     }
 }
 
-fn exit_from_result(result: Result<(), String>) -> i32 {
-    match result {
-        Ok(()) => 0,
-        Err(message) => {
-            eprintln!("{message}");
-            1
-        }
-    }
-}
-
-fn handle_list(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
+fn handle_list(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
     match action_arg {
         Some(backup_name) => {
-            let entry =
-                crate::storage::load_backup(config, backup_name).map_err(stringify_error)?;
+            let entry = crate::storage::load_backup(config, backup_name)?;
             println!("{}", crate::storage::render_detail(&entry));
             Ok(())
         }
@@ -173,14 +150,13 @@ fn handle_list(config: &AppState, action_arg: Option<&str>) -> Result<(), String
     }
 }
 
-fn do_delete(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
-    let backup_name = action_arg.ok_or_else(|| "delete requires a backup name".to_string())?;
-    crate::storage::delete_backup(config, backup_name).map_err(stringify_error)?;
+fn do_delete(config: &AppState, backup_name: &str) -> AppResult<()> {
+    crate::storage::delete_backup(config, backup_name)?;
     println!("Backup {backup_name} was deleted");
     Ok(())
 }
 
-fn do_backup(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
+fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
     match backup::capture_backup(config, action_arg) {
         Ok(backup::BackupOutcome::Created { path, .. }) => {
             println!("Backup of sessions was saved under {}", path.display());
@@ -190,26 +166,28 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> Result<(), String> 
             println!("No tmux session found, nothing to backup");
             Ok(())
         }
-        Err(error) => Err(stringify_error(error)),
+        Err(error) => Err(error.into()),
     }
 }
 
-fn do_restore(config: &AppState, action_arg: Option<&str>) -> Result<(), String> {
-    restore::restore_from_config(config, action_arg)
-        .map(|_| ())
-        .map_err(stringify_error)
+fn do_restore(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
+    restore::restore_from_config(config, action_arg)?;
+    Ok(())
 }
 
-fn interactive_list(config: &AppState) -> Result<(), String> {
+fn interactive_list(config: &AppState) -> AppResult<()> {
     with_stdio_locks(|input, output| interactive::interactive_list(config, input, output))
+        .map_err(Into::into)
 }
 
-fn interactive_delete(config: &AppState) -> Result<(), String> {
+fn interactive_delete(config: &AppState) -> AppResult<()> {
     with_stdio_locks(|input, output| interactive::interactive_delete(config, input, output))
+        .map_err(Into::into)
 }
 
-fn interactive_restore(config: &AppState) -> Result<(), String> {
+fn interactive_restore(config: &AppState) -> AppResult<()> {
     with_stdio_locks(|input, output| interactive::interactive_restore(config, input, output))
+        .map_err(Into::into)
 }
 
 #[derive(Default)]
@@ -253,13 +231,12 @@ fn read_socket_name(args: &[String], index: usize) -> Result<Option<String>, Cli
     Ok(Some(next_arg.clone()))
 }
 
-fn stringify_error(error: impl ToString) -> String {
-    error.to_string()
-}
-
-fn with_stdio_locks<F>(run: F) -> Result<(), String>
+fn with_stdio_locks<F>(run: F) -> Result<(), interactive::InteractiveError>
 where
-    F: FnOnce(&mut io::StdinLock<'_>, &mut io::StdoutLock<'_>) -> Result<(), String>,
+    F: FnOnce(
+        &mut io::StdinLock<'_>,
+        &mut io::StdoutLock<'_>,
+    ) -> Result<(), interactive::InteractiveError>,
 {
     let stdin = io::stdin();
     let stdout = io::stdout();

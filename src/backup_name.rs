@@ -1,81 +1,44 @@
-use std::fmt;
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackupNameError {
-    raw: String,
-    kind: BackupNameErrorKind,
-}
+use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum BackupNameErrorKind {
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum BackupNameError {
+    #[error("invalid backup name: backup name cannot be empty or whitespace-only")]
     Empty,
-    ParentTraversal,
-    PathSeparator,
-    AbsoluteLike,
+    #[error("invalid backup name {raw:?}: backup name cannot be '..'")]
+    ParentTraversal { raw: String },
+    #[error("invalid backup name {raw:?}: backup name cannot contain path separators")]
+    PathSeparator { raw: String },
+    #[error("invalid backup name {raw:?}: backup name cannot be absolute-like")]
+    AbsoluteLike { raw: String },
 }
-
-impl fmt::Display for BackupNameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            BackupNameErrorKind::Empty => {
-                write!(
-                    f,
-                    "invalid backup name: backup name cannot be empty or whitespace-only"
-                )
-            }
-            BackupNameErrorKind::ParentTraversal => {
-                write!(
-                    f,
-                    "invalid backup name {:?}: backup name cannot be '..'",
-                    self.raw
-                )
-            }
-            BackupNameErrorKind::PathSeparator => write!(
-                f,
-                "invalid backup name {:?}: backup name cannot contain path separators",
-                self.raw,
-            ),
-            BackupNameErrorKind::AbsoluteLike => write!(
-                f,
-                "invalid backup name {:?}: backup name cannot be absolute-like",
-                self.raw,
-            ),
-        }
-    }
-}
-
-impl std::error::Error for BackupNameError {}
 
 pub fn normalize_backup_name(raw: &str) -> Result<String, BackupNameError> {
     let normalized = raw.trim();
     if normalized.is_empty() {
-        return Err(invalid_backup_name(raw, BackupNameErrorKind::Empty));
+        return Err(BackupNameError::Empty);
     }
 
     if normalized == ".." {
-        return Err(invalid_backup_name(
-            raw,
-            BackupNameErrorKind::ParentTraversal,
-        ));
+        return Err(BackupNameError::ParentTraversal {
+            raw: raw.to_string(),
+        });
     }
 
     if normalized.starts_with('\\') || Path::new(normalized).is_absolute() {
-        return Err(invalid_backup_name(raw, BackupNameErrorKind::AbsoluteLike));
+        return Err(BackupNameError::AbsoluteLike {
+            raw: raw.to_string(),
+        });
     }
 
     if normalized.contains('/') || normalized.contains('\\') {
-        return Err(invalid_backup_name(raw, BackupNameErrorKind::PathSeparator));
+        return Err(BackupNameError::PathSeparator {
+            raw: raw.to_string(),
+        });
     }
 
     Ok(normalized.to_string())
-}
-
-fn invalid_backup_name(raw: &str, kind: BackupNameErrorKind) -> BackupNameError {
-    BackupNameError {
-        raw: raw.to_string(),
-        kind,
-    }
 }
 
 #[cfg(test)]

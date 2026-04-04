@@ -7,12 +7,12 @@
 //! partially written snapshot tree.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::hash::sha256_hex;
 use crate::model::Tmux;
@@ -28,109 +28,44 @@ pub const SUMMARY_FILE_NAME: &str = "summary.json";
 pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 const PANES_DIR_NAME: &str = "panes";
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SnapshotError {
+    #[error("I/O error at {}: {source}", path.display())]
     Io {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
+    #[error("JSON error at {}: {source}", path.display())]
     Json {
         path: PathBuf,
+        #[source]
         source: serde_json::Error,
     },
-    UnsupportedVersion {
-        path: PathBuf,
-        found_major: u16,
-    },
-    InvalidSummary {
-        path: PathBuf,
-        detail: String,
-    },
-    InvalidManifest {
-        path: PathBuf,
-        detail: String,
-    },
+    #[error("unsupported snapshot schema major version {found_major} at {}", path.display())]
+    UnsupportedVersion { path: PathBuf, found_major: u16 },
+    #[error("invalid snapshot summary {}: {detail}", path.display())]
+    InvalidSummary { path: PathBuf, detail: String },
+    #[error("invalid snapshot manifest {}: {detail}", path.display())]
+    InvalidManifest { path: PathBuf, detail: String },
+    #[error(
+        "summary/manifest mismatch between {} and {}: {detail}",
+        summary_path.display(),
+        manifest_path.display()
+    )]
     SummaryManifestMismatch {
         summary_path: PathBuf,
         manifest_path: PathBuf,
         detail: String,
     },
-    MissingPaneBytes {
-        pane_id: String,
-    },
-    DuplicatePaneId {
-        pane_id: String,
-    },
-    DuplicateContentRef {
-        content_ref: String,
-    },
-    InvalidRelativePath {
-        relative_path: String,
-    },
-}
-
-impl fmt::Display for SnapshotError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { path, source } => write!(f, "I/O error at {}: {source}", path.display()),
-            Self::Json { path, source } => {
-                write!(f, "JSON error at {}: {source}", path.display())
-            }
-            Self::UnsupportedVersion { path, found_major } => write!(
-                f,
-                "unsupported snapshot schema major version {found_major} at {}",
-                path.display()
-            ),
-            Self::InvalidSummary { path, detail } => {
-                write!(f, "invalid snapshot summary {}: {detail}", path.display())
-            }
-            Self::InvalidManifest { path, detail } => {
-                write!(f, "invalid snapshot manifest {}: {detail}", path.display())
-            }
-            Self::SummaryManifestMismatch {
-                summary_path,
-                manifest_path,
-                detail,
-            } => write!(
-                f,
-                "summary/manifest mismatch between {} and {}: {detail}",
-                summary_path.display(),
-                manifest_path.display()
-            ),
-            Self::MissingPaneBytes { pane_id } => {
-                write!(f, "missing captured pane bytes for {pane_id}")
-            }
-            Self::DuplicatePaneId { pane_id } => {
-                write!(f, "duplicate pane id in snapshot model: {pane_id}")
-            }
-            Self::DuplicateContentRef { content_ref } => {
-                write!(
-                    f,
-                    "duplicate content_ref in snapshot manifest: {content_ref}"
-                )
-            }
-            Self::InvalidRelativePath { relative_path } => {
-                write!(f, "invalid relative snapshot path: {relative_path}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for SnapshotError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io { source, .. } => Some(source),
-            Self::Json { source, .. } => Some(source),
-            Self::UnsupportedVersion { .. }
-            | Self::InvalidSummary { .. }
-            | Self::InvalidManifest { .. }
-            | Self::SummaryManifestMismatch { .. }
-            | Self::MissingPaneBytes { .. }
-            | Self::DuplicatePaneId { .. }
-            | Self::DuplicateContentRef { .. }
-            | Self::InvalidRelativePath { .. } => None,
-        }
-    }
+    #[error("missing captured pane bytes for {pane_id}")]
+    MissingPaneBytes { pane_id: String },
+    #[error("duplicate pane id in snapshot model: {pane_id}")]
+    DuplicatePaneId { pane_id: String },
+    #[error("duplicate content_ref in snapshot manifest: {content_ref}")]
+    DuplicateContentRef { content_ref: String },
+    #[error("invalid relative snapshot path: {relative_path}")]
+    InvalidRelativePath { relative_path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

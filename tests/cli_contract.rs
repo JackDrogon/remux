@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use remux::cli::{Action, CliError, parse_cli_args};
+use remux::cli::{parse_cli_args, Action, CliError};
 
 #[test]
 fn socket_can_appear_before_or_after_action() {
@@ -60,4 +60,61 @@ fn invalid_argument_shapes_exit_nonzero() {
             args
         );
     }
+}
+
+#[test]
+fn invalid_argument_errors_keep_stable_stderr_shape() {
+    let binary = env!("CARGO_BIN_EXE_remux");
+    let output = Command::new(binary)
+        .args(["--wat"])
+        .output()
+        .expect("binary invocation should succeed");
+
+    assert!(!output.status.success(), "unknown action should fail");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown action: --wat"),
+        "expected stable parse error text, stderr was: {stderr}"
+    );
+    assert!(
+        stderr.contains("Usage: remux [OPTIONS]"),
+        "expected usage text for parse errors, stderr was: {stderr}"
+    );
+    assert_stable_stderr(
+        &stderr,
+        "parse errors should not render color-eyre report frames",
+    );
+}
+
+#[test]
+fn missing_socket_errors_keep_stable_stderr_shape() {
+    let binary = env!("CARGO_BIN_EXE_remux");
+    let output = Command::new(binary)
+        .args(["-L"])
+        .output()
+        .expect("binary invocation should succeed");
+
+    assert!(!output.status.success(), "missing socket value should fail");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("missing socket name for -L"),
+        "expected stable missing-socket text, stderr was: {stderr}"
+    );
+    assert!(
+        stderr.contains("Usage: remux [OPTIONS]"),
+        "expected usage text for missing socket errors, stderr was: {stderr}"
+    );
+    assert_stable_stderr(
+        &stderr,
+        "missing socket parse errors should not render color-eyre report frames",
+    );
+}
+
+fn assert_stable_stderr(stderr: &str, context: &str) {
+    assert!(
+        !stderr.contains("Location:") && !stderr.contains("Backtrace omitted."),
+        "{context}, stderr was: {stderr}"
+    );
 }

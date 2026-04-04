@@ -6,11 +6,12 @@
 //! to preserve fail-fast behavior and predictable recovery semantics.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use thiserror::Error;
 
 use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
@@ -24,117 +25,50 @@ const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
 const DUMMY_SESSION_SIZE: (u32, u32) = (10, 10);
 const BASE_INDEX_OPTION: &str = "base-index";
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum RestoreError {
-    InvalidBackupName(BackupNameError),
+    #[error(transparent)]
+    InvalidBackupName(#[from] BackupNameError),
+    #[error("failed to read backup root {}: {source}", path.display())]
     BackupRootRead {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
+    #[error("failed to inspect backup directory {}: {source}", path.display())]
     BackupMetadata {
         path: PathBuf,
+        #[source]
         source: io::Error,
     },
-    NoBackups {
-        path: PathBuf,
-    },
-    BackupNotFound {
-        name: String,
-        path: PathBuf,
-    },
+    #[error("(restore -r): backup dir is empty, nothing to restore: {}", path.display())]
+    NoBackups { path: PathBuf },
+    #[error("(restore -r): cannot find given backup name:{name} under {}", path.display())]
+    BackupNotFound { name: String, path: PathBuf },
+    #[error("failed to load snapshot {}: {source}", path.display())]
     SnapshotLoad {
         path: PathBuf,
+        #[source]
         source: SnapshotError,
     },
-    MissingPaneContent {
-        pane_id: String,
-        path: PathBuf,
-    },
-    MissingPaneAsset {
-        pane_id: String,
-    },
+    #[error("missing pane content for {pane_id}: {}", path.display())]
+    MissingPaneContent { pane_id: String, path: PathBuf },
+    #[error("missing pane metadata for {pane_id}")]
+    MissingPaneAsset { pane_id: String },
+    #[error("invalid pane content for {pane_id} at {}: {detail}", path.display())]
     InvalidPaneContent {
         pane_id: String,
         path: PathBuf,
         detail: String,
     },
+    #[error("invalid tmux base-index value {raw:?}: {source}")]
     InvalidBaseIndex {
         raw: String,
+        #[source]
         source: std::num::ParseIntError,
     },
-    Tmux(SubprocessError),
-}
-
-impl fmt::Display for RestoreError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidBackupName(error) => write!(f, "{error}"),
-            Self::BackupRootRead { path, source } => {
-                write!(f, "failed to read backup root {}: {source}", path.display())
-            }
-            Self::BackupMetadata { path, source } => write!(
-                f,
-                "failed to inspect backup directory {}: {source}",
-                path.display()
-            ),
-            Self::NoBackups { path } => write!(
-                f,
-                "(restore -r): backup dir is empty, nothing to restore: {}",
-                path.display()
-            ),
-            Self::BackupNotFound { name, path } => write!(
-                f,
-                "(restore -r): cannot find given backup name:{name} under {}",
-                path.display()
-            ),
-            Self::SnapshotLoad { path, source } => {
-                write!(f, "failed to load snapshot {}: {source}", path.display())
-            }
-            Self::MissingPaneContent { pane_id, path } => {
-                write!(f, "missing pane content for {pane_id}: {}", path.display())
-            }
-            Self::MissingPaneAsset { pane_id } => {
-                write!(f, "missing pane metadata for {pane_id}")
-            }
-            Self::InvalidPaneContent {
-                pane_id,
-                path,
-                detail,
-            } => write!(
-                f,
-                "invalid pane content for {pane_id} at {}: {detail}",
-                path.display()
-            ),
-            Self::InvalidBaseIndex { raw, source } => {
-                write!(f, "invalid tmux base-index value {raw:?}: {source}")
-            }
-            Self::Tmux(source) => write!(f, "{source}"),
-        }
-    }
-}
-
-impl std::error::Error for RestoreError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidBackupName(error) => Some(error),
-            Self::BackupRootRead { source, .. } => Some(source),
-            Self::BackupMetadata { source, .. } => Some(source),
-            Self::SnapshotLoad { source, .. } => Some(source),
-            Self::InvalidBaseIndex { source, .. } => Some(source),
-            Self::Tmux(source) => Some(source),
-            Self::NoBackups { .. }
-            | Self::BackupNotFound { .. }
-            | Self::MissingPaneContent { .. }
-            | Self::MissingPaneAsset { .. }
-            | Self::InvalidPaneContent { .. } => None,
-        }
-    }
-}
-
-impl From<SubprocessError> for RestoreError {
-    fn from(value: SubprocessError) -> Self {
-        Self::Tmux(value)
-    }
+    #[error(transparent)]
+    Tmux(#[from] SubprocessError),
 }
 
 pub fn restore_from_config(
