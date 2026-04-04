@@ -1,3 +1,0 @@
-$ cd /srv/ops
-$ ./deploy --dry-run
-named socket fixture content

@@ -3,26 +3,34 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use remux::model::{Pane, Session, Size, Tmux, Window};
 use remux::restore::{resolve_backup_name, restore_from_path_with_adapter};
+use remux::snapshot;
 use remux::tmux::TmuxAdapter;
 
-const FIXTURES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/legacy");
+mod support;
 
 #[test]
 fn restores_latest_backup_when_name_missing() {
     let sandbox = RestoreSandbox::new("latest-fallback");
     let backup_root = sandbox.backup_root();
 
-    copy_fixture_backup(
-        &Path::new(FIXTURES_ROOT)
-            .join("default_socket")
-            .join("backup_20240101_120000"),
-        &backup_root,
+    let (older_tmux, older_panes) = support::single_window_tmux(
+        "backup_20240101_120000",
+        "work",
+        "2024-01-01 12:00:00",
+        &["/tmp/default-work", "/tmp/default-side"],
     );
+    snapshot::write_snapshot_dir(
+        &backup_root.join("backup_20240101_120000"),
+        &older_tmux,
+        &older_panes,
+    )
+    .expect("older snapshot should be written");
     write_backup(
         &backup_root,
         "backup_20240101_130000",
-        latest_snapshot_json(),
+        latest_snapshot_tmux("backup_20240101_130000"),
         &[
             ("alpha:3.0", "session alpha main pane\n"),
             ("alpha:3.1", "session alpha side pane\n"),
@@ -72,7 +80,7 @@ fn skips_conflicting_session_names() {
     write_backup(
         &backup_root,
         "backup_20240102_120000",
-        conflict_snapshot_json(),
+        conflict_snapshot_tmux("backup_20240102_120000"),
         &[
             ("existing:1.0", "existing pane\n"),
             ("fresh:2.0", "fresh pane\n"),
@@ -100,8 +108,8 @@ fn malformed_backup_fails_fast() {
     let backup_root = sandbox.backup_root();
     let backup_dir = backup_root.join("backup_bad");
     fs::create_dir_all(&backup_dir).expect("should create malformed backup dir");
-    fs::write(backup_dir.join("backup_bad.json"), "{\"tid\":true}\n")
-        .expect("should write malformed snapshot");
+    fs::write(backup_dir.join("summary.json"), "{\"backup_id\":true}\n")
+        .expect("should write malformed summary");
 
     let adapter = sandbox.adapter_owned();
     let error = restore_from_path_with_adapter(&backup_root, &adapter, "backup_bad")
@@ -109,8 +117,7 @@ fn malformed_backup_fails_fast() {
     let message = error.to_string();
 
     assert!(
-        message.contains("failed to load snapshot")
-            && message.contains("missing required legacy marker __class__"),
+        message.contains("failed to load snapshot") && message.contains("JSON error"),
         "unexpected malformed restore error: {message}"
     );
 
@@ -129,9 +136,20 @@ fn missing_pane_file_fails_fast_before_tmux_mutation() {
     write_backup(
         &backup_root,
         "backup_missing_pane",
-        latest_snapshot_json(),
-        &[("alpha:3.0", "session alpha main pane\n")],
+        latest_snapshot_tmux("backup_missing_pane"),
+        &[
+            ("alpha:3.0", "session alpha main pane\n"),
+            ("alpha:3.1", "session alpha side pane\n"),
+            ("alpha:1.0", "session alpha shell\n"),
+        ],
     );
+    fs::remove_file(
+        backup_root
+            .join("backup_missing_pane")
+            .join("panes")
+            .join("alpha:1.0.txt"),
+    )
+    .expect("one pane file should be removed to simulate corruption");
 
     let adapter = sandbox.adapter_owned();
     let error = restore_from_path_with_adapter(&backup_root, &adapter, "backup_missing_pane")
@@ -170,7 +188,7 @@ fn named_restore_resolution_trims_and_rejects_invalid_names() {
     write_backup(
         &backup_root,
         "backup_trimmed",
-        latest_snapshot_json(),
+        latest_snapshot_tmux("backup_trimmed"),
         &[
             ("alpha:3.0", "session alpha main pane\n"),
             ("alpha:3.1", "session alpha side pane\n"),
@@ -207,37 +225,15 @@ fn assert_contains(haystack: &str, needle: &str) {
     );
 }
 
-fn copy_fixture_backup(source_backup_dir: &Path, backup_root: &Path) {
-    let backup_name = source_backup_dir
-        .file_name()
-        .expect("fixture backup dir should have a name");
-    let destination = backup_root.join(backup_name);
-    fs::create_dir_all(&destination).expect("should create copied fixture destination");
-
-    for entry in fs::read_dir(source_backup_dir).expect("should list fixture backup directory") {
-        let entry = entry.expect("fixture backup entry should be readable");
-        let target = destination.join(entry.file_name());
-        fs::copy(entry.path(), target).expect("fixture file should copy");
-    }
-}
-
-fn write_backup(
-    backup_root: &Path,
-    backup_name: &str,
-    snapshot_json: &str,
-    pane_files: &[(&str, &str)],
-) {
+fn write_backup(backup_root: &Path, backup_name: &str, tmux: Tmux, pane_files: &[(&str, &str)]) {
     let backup_dir = backup_root.join(backup_name);
     fs::create_dir_all(&backup_dir).expect("should create backup directory");
-    fs::write(
-        backup_dir.join(format!("{backup_name}.json")),
-        snapshot_json,
-    )
-    .expect("should write snapshot json");
-
-    for (pane_id, content) in pane_files {
-        fs::write(backup_dir.join(pane_id), content).expect("should write pane content file");
-    }
+    let pane_contents = pane_files
+        .iter()
+        .map(|(pane_id, content)| (pane_id.to_string(), content.as_bytes().to_vec()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        .expect("should write snapshot directory");
 }
 
 fn set_backup_mtime(path: &Path, seconds: u64) {
@@ -259,153 +255,75 @@ fn format_time_for_touch(timestamp: SystemTime) -> String {
     format!("@{seconds}")
 }
 
-fn latest_snapshot_json() -> &'static str {
-    r#"{
-  "__class__": "Tmux",
-  "__module__": "tmuxbk.tmux_obj",
-  "create_time": "2024-01-01 13:00:00",
-  "sessions": [
-    {
-      "__class__": "Session",
-      "__module__": "tmuxbk.tmux_obj",
-      "attached": false,
-      "name": "alpha",
-      "size": [140, 45],
-      "windows": [
-        {
-          "__class__": "Window",
-          "__module__": "tmuxbk.tmux_obj",
-          "active": false,
-          "layout": "1900,140x45,0,0,0",
-          "name": "shell",
-          "panes": [
-            {
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": true,
-              "cont_file": "",
-              "pane_id": 0,
-              "path": "/tmp/alpha/shell",
-              "sess_name": "alpha",
-              "size": [140, 45],
-              "win_id": 1
-            }
-          ],
-          "sess_name": "alpha",
-          "win_id": 1
-        },
-        {
-          "__class__": "Window",
-          "__module__": "tmuxbk.tmux_obj",
-          "active": true,
-          "layout": "a1b2,140x45,0,0{70x45,0,0,0,69x45,71,0,1}",
-          "name": "editor",
-          "panes": [
-            {
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": true,
-              "cont_file": "",
-              "pane_id": 0,
-              "path": "/tmp/alpha/main",
-              "sess_name": "alpha",
-              "size": [70, 45],
-              "win_id": 3
-            },
-            {
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": false,
-              "cont_file": "",
-              "pane_id": 1,
-              "path": "/tmp/alpha/side",
-              "sess_name": "alpha",
-              "size": [69, 45],
-              "win_id": 3
-            }
-          ],
-          "sess_name": "alpha",
-          "win_id": 3
-        }
-      ],
-      "size": [140, 45]
-    }
-  ],
-  "tid": "backup_20240101_130000"
-}"#
+fn latest_snapshot_tmux(backup_id: &str) -> Tmux {
+    let mut tmux = Tmux::new(backup_id);
+    tmux.create_time = "2024-01-01 13:00:00".to_string();
+
+    let mut session = Session::new("alpha");
+    session.size = Size::new(140, 45);
+
+    let mut shell_window = Window::new("alpha", 1);
+    shell_window.name = "shell".to_string();
+    shell_window.layout = "1900,140x45,0,0,0".to_string();
+    let mut shell_pane = Pane::new("alpha", 1, 0);
+    shell_pane.active = true;
+    shell_pane.path = "/tmp/alpha/shell".to_string();
+    shell_pane.size = Size::new(140, 45);
+    shell_window.panes.push(shell_pane);
+
+    let mut editor_window = Window::new("alpha", 3);
+    editor_window.name = "editor".to_string();
+    editor_window.active = true;
+    editor_window.layout = "a1b2,140x45,0,0{70x45,0,0,0,69x45,71,0,1}".to_string();
+    let mut main_pane = Pane::new("alpha", 3, 0);
+    main_pane.active = true;
+    main_pane.path = "/tmp/alpha/main".to_string();
+    main_pane.size = Size::new(70, 45);
+    let mut side_pane = Pane::new("alpha", 3, 1);
+    side_pane.path = "/tmp/alpha/side".to_string();
+    side_pane.size = Size::new(69, 45);
+    editor_window.panes.push(main_pane);
+    editor_window.panes.push(side_pane);
+
+    session.windows.push(shell_window);
+    session.windows.push(editor_window);
+    tmux.sessions.push(session);
+    tmux
 }
 
-fn conflict_snapshot_json() -> &'static str {
-    r#"{
-  "__class__": "Tmux",
-  "__module__": "tmuxbk.tmux_obj",
-  "create_time": "2024-01-02 12:00:00",
-  "sessions": [
-    {
-      "__class__": "Session",
-      "__module__": "tmuxbk.tmux_obj",
-      "attached": false,
-      "name": "existing",
-      "size": [80, 24],
-      "windows": [
-        {
-          "__class__": "Window",
-          "__module__": "tmuxbk.tmux_obj",
-          "active": true,
-          "layout": "cafe,80x24,0,0,0",
-          "name": "existing-window",
-          "panes": [
-            {
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": true,
-              "cont_file": "",
-              "pane_id": 0,
-              "path": "/tmp/existing",
-              "sess_name": "existing",
-              "size": [80, 24],
-              "win_id": 1
-            }
-          ],
-          "sess_name": "existing",
-          "win_id": 1
-        }
-      ]
-    },
-    {
-      "__class__": "Session",
-      "__module__": "tmuxbk.tmux_obj",
-      "attached": false,
-      "name": "fresh",
-      "size": [90, 28],
-      "windows": [
-        {
-          "__class__": "Window",
-          "__module__": "tmuxbk.tmux_obj",
-          "active": true,
-          "layout": "dead,90x28,0,0,0",
-          "name": "fresh-window",
-          "panes": [
-            {
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": true,
-              "cont_file": "",
-              "pane_id": 0,
-              "path": "/tmp/fresh",
-              "sess_name": "fresh",
-              "size": [90, 28],
-              "win_id": 2
-            }
-          ],
-          "sess_name": "fresh",
-          "win_id": 2
-        }
-      ]
-    }
-  ],
-  "tid": "backup_20240102_120000"
-}"#
+fn conflict_snapshot_tmux(backup_id: &str) -> Tmux {
+    let mut tmux = Tmux::new(backup_id);
+    tmux.create_time = "2024-01-02 12:00:00".to_string();
+
+    let mut existing = Session::new("existing");
+    existing.size = Size::new(80, 24);
+    let mut existing_window = Window::new("existing", 1);
+    existing_window.name = "existing-window".to_string();
+    existing_window.active = true;
+    existing_window.layout = "cafe,80x24,0,0,0".to_string();
+    let mut existing_pane = Pane::new("existing", 1, 0);
+    existing_pane.active = true;
+    existing_pane.path = "/tmp/existing".to_string();
+    existing_pane.size = Size::new(80, 24);
+    existing_window.panes.push(existing_pane);
+    existing.windows.push(existing_window);
+
+    let mut fresh = Session::new("fresh");
+    fresh.size = Size::new(90, 28);
+    let mut fresh_window = Window::new("fresh", 2);
+    fresh_window.name = "fresh-window".to_string();
+    fresh_window.active = true;
+    fresh_window.layout = "dead,90x28,0,0,0".to_string();
+    let mut fresh_pane = Pane::new("fresh", 2, 0);
+    fresh_pane.active = true;
+    fresh_pane.path = "/tmp/fresh".to_string();
+    fresh_pane.size = Size::new(90, 28);
+    fresh_window.panes.push(fresh_pane);
+    fresh.windows.push(fresh_window);
+
+    tmux.sessions.push(existing);
+    tmux.sessions.push(fresh);
+    tmux
 }
 
 struct RestoreSandbox {

@@ -16,12 +16,18 @@ fn backup_list_and_delete_work_against_real_tmux() {
     assert_success(&backup_output, "live tmux backup should succeed");
 
     let backup_dir = env.backup_dir(backup_name);
-    let snapshot_path = backup_dir.join(format!("{backup_name}.json"));
+    let summary_path = backup_dir.join("summary.json");
+    let manifest_path = backup_dir.join("manifest.json");
     let backup_stdout = String::from_utf8_lossy(&backup_output.stdout);
     assert!(
-        snapshot_path.is_file(),
-        "expected snapshot at {}",
-        snapshot_path.display()
+        summary_path.is_file(),
+        "expected snapshot summary at {}",
+        summary_path.display()
+    );
+    assert!(
+        manifest_path.is_file(),
+        "expected snapshot manifest at {}",
+        manifest_path.display()
     );
     assert!(
         backup_stdout.contains(&format!(

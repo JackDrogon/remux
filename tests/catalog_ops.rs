@@ -6,8 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use remux::catalog;
 use remux::config::{AppState, ExecutionOptions};
-use remux::model::{Pane, Session, Size, Tmux, Window};
-use remux::serde_legacy;
+use remux::snapshot;
+
+mod support;
 
 #[test]
 fn named_socket_listing_is_isolated() {
@@ -223,11 +224,8 @@ fn named_lookup_reads_only_requested_backup() {
 
     let broken_dir = config.active_backup_path().join("backup_broken");
     fs::create_dir_all(&broken_dir).expect("broken backup directory should exist");
-    fs::write(
-        broken_dir.join("backup_broken.json"),
-        r#"{ "__class__": "Tmux", "__module__": "tmuxbk.tmux_obj", "tid": 123 }"#,
-    )
-    .expect("broken snapshot should be written");
+    fs::write(broken_dir.join("summary.json"), r#"{ "backup_id": 123 }"#)
+        .expect("broken snapshot should be written");
 
     let loaded = catalog::load_backup(&config, "backup_good")
         .expect("named load should not scan unrelated broken backups");
@@ -250,35 +248,10 @@ fn write_backup(
     let backup_dir = config.active_backup_path().join(backup_id);
     fs::create_dir_all(&backup_dir).expect("backup directory should be created");
 
-    let mut tmux = Tmux::new(backup_id);
-    tmux.create_time = create_time.to_string();
-
-    let mut session = Session::new(session_name);
-    session.size = Size::new(120, 40);
-
-    let mut window = Window::new(session_name, 1);
-    window.name = "editor".to_string();
-    window.active = true;
-
-    for (index, pane_path) in pane_paths.iter().enumerate() {
-        let mut pane = Pane::new(session_name, 1, index as u32);
-        pane.active = index == 0;
-        pane.size = Size::new(120, 40);
-        pane.path = (*pane_path).to_string();
-        pane.cont_file = pane.idstr();
-        fs::write(
-            backup_dir.join(&pane.cont_file),
-            format!("content for {pane_path}\n"),
-        )
-        .expect("pane content file should be written");
-        window.panes.push(pane);
-    }
-
-    session.windows.push(window);
-    tmux.sessions.push(session);
-
-    serde_legacy::write_snapshot_file(backup_dir.join(format!("{backup_id}.json")), &tmux)
-        .expect("legacy snapshot file should be written");
+    let (tmux, pane_contents) =
+        support::single_window_tmux(backup_id, session_name, create_time, pane_paths);
+    snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        .expect("snapshot directory should be written");
 
     backup_dir
 }

@@ -101,13 +101,13 @@ impl TmuxAdapter {
     }
 
     pub fn list_sessions(&self) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_legacy_lines(
+        Ok(split_tmux_lines(
             &self.run(TmuxCommand::ListSessions)?.stdout,
         ))
     }
 
     pub fn list_windows(&self, session_name: &str) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_legacy_lines(
+        Ok(split_tmux_lines(
             &self
                 .run(TmuxCommand::ListWindows {
                     session_name: session_name.to_string(),
@@ -121,7 +121,7 @@ impl TmuxAdapter {
         session_name: &str,
         window_index: usize,
     ) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_legacy_lines(
+        Ok(split_tmux_lines(
             &self
                 .run(TmuxCommand::ListPanes {
                     session_name: session_name.to_string(),
@@ -580,6 +580,6 @@ fn normalize_stream(bytes: Vec<u8>) -> String {
     text
 }
 
-fn split_legacy_lines(output: &str) -> Vec<String> {
+fn split_tmux_lines(output: &str) -> Vec<String> {
     output.split('\n').map(ToOwned::to_owned).collect()
 }

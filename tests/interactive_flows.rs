@@ -7,7 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppState, ConfigPaths, ExecutionOptions};
 use remux::model::{Pane, Session, Size, Tmux, Window};
-use remux::serde_legacy;
+use remux::snapshot;
+
+mod support;
 
 #[test]
 fn interactive_list_without_arg_shows_details_until_quit() {
@@ -341,36 +343,10 @@ impl InteractiveEnv {
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("backup directory should be created");
 
-        let mut tmux = Tmux::new(backup_id);
-        tmux.create_time = create_time.to_string();
-
-        let mut session = Session::new(session_name);
-        session.size = Size::new(120, 40);
-
-        let mut window = Window::new(session_name, 1);
-        window.name = "editor".to_string();
-        window.active = true;
-        window.layout = "1900,120x40,0,0,0".to_string();
-
-        for (index, pane_path) in pane_paths.iter().enumerate() {
-            let mut pane = Pane::new(session_name, 1, index as u32);
-            pane.active = index == 0;
-            pane.size = Size::new(120, 40);
-            pane.path = (*pane_path).to_string();
-            pane.cont_file = pane.idstr();
-            fs::write(
-                backup_dir.join(&pane.cont_file),
-                format!("content for {pane_path}\n"),
-            )
-            .expect("pane content file should be written");
-            window.panes.push(pane);
-        }
-
-        session.windows.push(window);
-        tmux.sessions.push(session);
-
-        serde_legacy::write_snapshot_file(backup_dir.join(format!("{backup_id}.json")), &tmux)
-            .expect("legacy snapshot file should be written");
+        let (tmux, pane_contents) =
+            support::single_window_tmux(backup_id, session_name, create_time, pane_paths);
+        snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+            .expect("snapshot directory should be written");
 
         backup_dir
     }
@@ -382,13 +358,29 @@ impl InteractiveEnv {
 
         let backup_dir = config.active_backup_path().join(backup_id);
         fs::create_dir_all(&backup_dir).expect("restore backup directory should be created");
-        fs::write(backup_dir.join("work:1.0"), "restored pane\n")
-            .expect("pane content should be written");
-        fs::write(
-            backup_dir.join(format!("{backup_id}.json")),
-            restore_snapshot_json(backup_id),
-        )
-        .expect("restore snapshot should be written");
+
+        let mut tmux = Tmux::new(backup_id);
+        tmux.create_time = "2024-01-01 12:00:00".to_string();
+        let mut session = Session::new("work");
+        session.size = Size::new(120, 40);
+
+        let mut window = Window::new("work", 1);
+        window.name = "editor".to_string();
+        window.active = true;
+        window.layout = "1900,120x40,0,0,0".to_string();
+
+        let mut pane = Pane::new("work", 1, 0);
+        pane.active = true;
+        pane.size = Size::new(120, 40);
+        pane.path = "/tmp/work".to_string();
+        window.panes.push(pane);
+        session.windows.push(window);
+        tmux.sessions.push(session);
+
+        let mut pane_contents = std::collections::BTreeMap::new();
+        pane_contents.insert("work:1.0".to_string(), b"restored pane\n".to_vec());
+        snapshot::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+            .expect("restore snapshot should be written");
         backup_dir
     }
 
@@ -437,50 +429,6 @@ impl Drop for InteractiveEnv {
             let _ = fs::remove_dir_all(&self.root);
         }
     }
-}
-
-fn restore_snapshot_json(backup_id: &str) -> String {
-    format!(
-        r#"{{
-  "__class__": "Tmux",
-  "__module__": "tmuxbk.tmux_obj",
-  "create_time": "2024-01-01 12:00:00",
-  "sessions": [
-    {{
-      "__class__": "Session",
-      "__module__": "tmuxbk.tmux_obj",
-      "attached": false,
-      "name": "work",
-      "size": [120, 40],
-      "windows": [
-        {{
-          "__class__": "Window",
-          "__module__": "tmuxbk.tmux_obj",
-          "active": true,
-          "layout": "1900,120x40,0,0,0",
-          "name": "editor",
-          "panes": [
-            {{
-              "__class__": "Pane",
-              "__module__": "tmuxbk.tmux_obj",
-              "active": true,
-              "cont_file": "",
-              "pane_id": 0,
-              "path": "/tmp/work",
-              "sess_name": "work",
-              "size": [120, 40],
-              "win_id": 1
-            }}
-          ],
-          "sess_name": "work",
-          "win_id": 1
-        }}
-      ]
-    }}
-  ],
-  "tid": "{backup_id}"
-}}"#
-    )
 }
 
 const FAKE_TMUX_SCRIPT: &str = r#"#!/bin/zsh

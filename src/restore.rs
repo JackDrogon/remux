@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -8,8 +9,9 @@ use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Tmux, Window};
-use crate::serde_legacy::{self, LegacySnapshotError};
+use crate::snapshot::{self, LoadedSnapshot, PaneAsset, SnapshotError};
 use crate::tmux::TmuxAdapter;
+use sha2::{Digest, Sha256};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
 const DUMMY_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -35,11 +37,19 @@ pub enum RestoreError {
     },
     SnapshotLoad {
         path: PathBuf,
-        source: LegacySnapshotError,
+        source: SnapshotError,
     },
     MissingPaneContent {
         pane_id: String,
         path: PathBuf,
+    },
+    MissingPaneAsset {
+        pane_id: String,
+    },
+    InvalidPaneContent {
+        pane_id: String,
+        path: PathBuf,
+        detail: String,
     },
     InvalidBaseIndex {
         raw: String,
@@ -76,6 +86,18 @@ impl fmt::Display for RestoreError {
             Self::MissingPaneContent { pane_id, path } => {
                 write!(f, "missing pane content for {pane_id}: {}", path.display())
             }
+            Self::MissingPaneAsset { pane_id } => {
+                write!(f, "missing pane metadata for {pane_id}")
+            }
+            Self::InvalidPaneContent {
+                pane_id,
+                path,
+                detail,
+            } => write!(
+                f,
+                "invalid pane content for {pane_id} at {}: {detail}",
+                path.display()
+            ),
             Self::InvalidBaseIndex { raw, source } => {
                 write!(f, "invalid tmux base-index value {raw:?}: {source}")
             }
@@ -95,7 +117,9 @@ impl std::error::Error for RestoreError {
             Self::Tmux(source) => Some(source),
             Self::NoBackups { .. }
             | Self::BackupNotFound { .. }
-            | Self::MissingPaneContent { .. } => None,
+            | Self::MissingPaneContent { .. }
+            | Self::MissingPaneAsset { .. }
+            | Self::InvalidPaneContent { .. } => None,
         }
     }
 }
@@ -159,16 +183,15 @@ pub fn restore_from_path_with_adapter(
     adapter: &TmuxAdapter,
     backup_name: &str,
 ) -> Result<(), RestoreError> {
-    let snapshot_path = snapshot_file_path(active_backup_path, backup_name);
-    let tmux = serde_legacy::read_snapshot_file(&snapshot_path).map_err(|source| {
-        RestoreError::SnapshotLoad {
-            path: snapshot_path.clone(),
+    let backup_dir = backup_dir_path(active_backup_path, backup_name);
+    let snapshot =
+        snapshot::read_snapshot_dir(&backup_dir).map_err(|source| RestoreError::SnapshotLoad {
+            path: backup_dir.clone(),
             source,
-        }
-    })?;
+        })?;
 
     let mut engine = RestoreEngine::new(active_backup_path, adapter);
-    let restore_result = engine.restore_snapshot(&tmux, backup_name);
+    let restore_result = engine.restore_snapshot(&snapshot, &backup_dir);
     let cleanup_result = engine.cleanup_dummy_session();
 
     restore_result?;
@@ -176,10 +199,8 @@ pub fn restore_from_path_with_adapter(
     Ok(())
 }
 
-fn snapshot_file_path(active_backup_path: &Path, backup_name: &str) -> PathBuf {
-    active_backup_path
-        .join(backup_name)
-        .join(format!("{backup_name}.json"))
+fn backup_dir_path(active_backup_path: &Path, backup_name: &str) -> PathBuf {
+    active_backup_path.join(backup_name)
 }
 
 fn list_backups(active_backup_path: &Path) -> Result<Vec<BackupEntry>, RestoreError> {
@@ -229,28 +250,31 @@ struct BackupEntry {
 }
 
 struct RestoreEngine<'a> {
-    active_backup_path: &'a Path,
     adapter: &'a TmuxAdapter,
     win_base_index: Option<usize>,
     dummy_session: Option<String>,
 }
 
 impl<'a> RestoreEngine<'a> {
-    fn new(active_backup_path: &'a Path, adapter: &'a TmuxAdapter) -> Self {
+    fn new(_active_backup_path: &'a Path, adapter: &'a TmuxAdapter) -> Self {
         Self {
-            active_backup_path,
             adapter,
             win_base_index: None,
             dummy_session: None,
         }
     }
 
-    fn restore_snapshot(&mut self, tmux: &Tmux, backup_name: &str) -> Result<(), RestoreError> {
-        let sessions_to_restore = self.collect_restorable_sessions(tmux, backup_name)?;
+    fn restore_snapshot(
+        &mut self,
+        snapshot: &LoadedSnapshot,
+        backup_dir: &Path,
+    ) -> Result<(), RestoreError> {
+        let sessions_to_restore =
+            self.collect_restorable_sessions(&snapshot.tmux, &snapshot.pane_assets, backup_dir)?;
         self.ensure_base_index_ready()?;
 
         for session in sessions_to_restore {
-            self.restore_session(session, backup_name)?;
+            self.restore_session(session, &snapshot.pane_assets, backup_dir)?;
         }
 
         Ok(())
@@ -259,7 +283,8 @@ impl<'a> RestoreEngine<'a> {
     fn collect_restorable_sessions<'b>(
         &self,
         tmux: &'b Tmux,
-        backup_name: &str,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
     ) -> Result<Vec<&'b Session>, RestoreError> {
         let has_server = self.adapter.has_server()?;
         let mut sessions_to_restore = Vec::new();
@@ -269,7 +294,7 @@ impl<'a> RestoreEngine<'a> {
                 continue;
             }
 
-            self.validate_session_assets(session, backup_name)?;
+            self.validate_session_assets(session, pane_assets, backup_dir)?;
             sessions_to_restore.push(session);
         }
 
@@ -311,26 +336,32 @@ impl<'a> RestoreEngine<'a> {
     fn restore_session(
         &mut self,
         session: &Session,
-        backup_name: &str,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
     ) -> Result<(), RestoreError> {
         let (width, height) = session.size.as_tuple().unwrap_or(DEFAULT_SESSION_SIZE);
         self.adapter.create_session(&session.name, width, height)?;
 
         let windows = session.windows_in_reverse();
         for window in windows.iter().take(windows.len().saturating_sub(1)) {
-            self.restore_window(window, backup_name)?;
+            self.restore_window(window, pane_assets, backup_dir)?;
             self.adapter
                 .create_empty_window(&session.name, self.ensure_base_index_ready()?)?;
         }
 
         if let Some(last_window) = windows.last() {
-            self.restore_window(last_window, backup_name)?;
+            self.restore_window(last_window, pane_assets, backup_dir)?;
         }
 
         Ok(())
     }
 
-    fn restore_window(&mut self, window: &Window, backup_name: &str) -> Result<(), RestoreError> {
+    fn restore_window(
+        &mut self,
+        window: &Window,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
+    ) -> Result<(), RestoreError> {
         let win_base_index = self.ensure_base_index_ready()?;
         let window_id = usize::try_from(window.win_id)
             .expect("u32 window ids should always fit into usize on supported targets");
@@ -360,7 +391,7 @@ impl<'a> RestoreEngine<'a> {
         }
 
         for pane in &window.panes {
-            self.restore_pane(pane, backup_name)?;
+            self.restore_pane(pane, pane_assets, backup_dir)?;
         }
 
         self.adapter
@@ -368,13 +399,17 @@ impl<'a> RestoreEngine<'a> {
         Ok(())
     }
 
-    fn restore_pane(&self, pane: &Pane, backup_name: &str) -> Result<(), RestoreError> {
+    fn restore_pane(
+        &self,
+        pane: &Pane,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
+    ) -> Result<(), RestoreError> {
         let pane_id = pane.idstr();
         self.adapter
             .set_pane_path(&pane_id, Path::new(&pane.path))?;
 
-        let content_path = self.pane_content_path(backup_name, &pane_id);
-        self.ensure_pane_content_exists(&pane_id, &content_path)?;
+        let content_path = self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
 
         self.adapter
             .restore_pane_content(&pane.idstr(), &content_path)?;
@@ -384,37 +419,72 @@ impl<'a> RestoreEngine<'a> {
     fn validate_session_assets(
         &self,
         session: &Session,
-        backup_name: &str,
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
     ) -> Result<(), RestoreError> {
         for window in &session.windows {
             for pane in &window.panes {
                 let pane_id = pane.idstr();
-                let content_path = self.pane_content_path(backup_name, &pane_id);
-                self.ensure_pane_content_exists(&pane_id, &content_path)?;
+                let _ = self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
             }
         }
 
         Ok(())
     }
 
-    fn pane_content_path(&self, backup_name: &str, pane_id: &str) -> PathBuf {
-        self.active_backup_path.join(backup_name).join(pane_id)
-    }
-
-    fn ensure_pane_content_exists(
+    fn validated_pane_content_path(
         &self,
         pane_id: &str,
-        content_path: &Path,
-    ) -> Result<(), RestoreError> {
-        if content_path.is_file() {
-            return Ok(());
+        pane_assets: &BTreeMap<String, PaneAsset>,
+        backup_dir: &Path,
+    ) -> Result<PathBuf, RestoreError> {
+        let asset = pane_assets
+            .get(pane_id)
+            .ok_or_else(|| RestoreError::MissingPaneAsset {
+                pane_id: pane_id.to_string(),
+            })?;
+        let content_path = backup_dir.join(&asset.relative_path);
+
+        if !content_path.is_file() {
+            return Err(RestoreError::MissingPaneContent {
+                pane_id: pane_id.to_string(),
+                path: content_path,
+            });
         }
 
-        Err(RestoreError::MissingPaneContent {
-            pane_id: pane_id.to_string(),
-            path: content_path.to_path_buf(),
-        })
+        let bytes = fs::read(&content_path).map_err(|source| RestoreError::BackupMetadata {
+            path: content_path.clone(),
+            source,
+        })?;
+        if bytes.len() as u64 != asset.byte_len {
+            return Err(RestoreError::InvalidPaneContent {
+                pane_id: pane_id.to_string(),
+                path: content_path,
+                detail: format!("expected {} bytes, found {}", asset.byte_len, bytes.len()),
+            });
+        }
+
+        let actual_hash = sha256_hex(&bytes);
+        if actual_hash != asset.sha256 {
+            return Err(RestoreError::InvalidPaneContent {
+                pane_id: pane_id.to_string(),
+                path: content_path,
+                detail: format!("expected sha256 {}, found {}", asset.sha256, actual_hash),
+            });
+        }
+
+        Ok(content_path)
     }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 fn generate_dummy_session_name() -> String {

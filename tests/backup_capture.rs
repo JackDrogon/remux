@@ -5,10 +5,10 @@ use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
-use remux::serde_legacy;
+use remux::snapshot;
 
 #[test]
-fn creates_legacy_backup_tree() {
+fn creates_snapshot_tree() {
     let env = TestEnv::new("creates-tree");
     env.write_config(true);
     env.install_fake_tmux();
@@ -21,21 +21,27 @@ fn creates_legacy_backup_tree() {
         .backup_socket_root(&AppConfig::default())
         .join(socket_dir_name(Some("sock/name")).unwrap());
     let backup_dir = backup_root.join("backup_20240101_120000");
-    let json_path = backup_dir.join("backup_20240101_120000.json");
+    let summary_path = backup_dir.join("summary.json");
+    let manifest_path = backup_dir.join("manifest.json");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        json_path.is_file(),
-        "expected snapshot json at {}",
-        json_path.display()
+        summary_path.is_file(),
+        "expected snapshot summary at {}",
+        summary_path.display()
     );
     assert!(
-        backup_dir.join("work:1.0").is_file(),
-        "expected pane file work:1.0"
+        manifest_path.is_file(),
+        "expected snapshot manifest at {}",
+        manifest_path.display()
     );
     assert!(
-        backup_dir.join("work:1.1").is_file(),
-        "expected pane file work:1.1"
+        backup_dir.join("panes").join("work:1.0.txt").is_file(),
+        "expected pane file work:1.0.txt"
+    );
+    assert!(
+        backup_dir.join("panes").join("work:1.1.txt").is_file(),
+        "expected pane file work:1.1.txt"
     );
     assert!(
         stdout.contains(&format!(
@@ -45,13 +51,14 @@ fn creates_legacy_backup_tree() {
         "expected backup success message to mention backup path, stdout was: {stdout}"
     );
 
-    let snapshot = serde_legacy::read_snapshot_file(&json_path)
-        .expect("generated snapshot should decode as legacy JSON");
-    assert_eq!(snapshot.tid, "backup_20240101_120000");
-    assert_create_time_shape(&snapshot.create_time);
-    assert_eq!(snapshot.sessions.len(), 1);
+    let snapshot = snapshot::read_snapshot_dir(&backup_dir)
+        .expect("generated snapshot should decode as Rust snapshot directory");
+    let tmux = &snapshot.tmux;
+    assert_eq!(tmux.tid, "backup_20240101_120000");
+    assert_create_time_shape(&tmux.create_time);
+    assert_eq!(tmux.sessions.len(), 1);
 
-    let session = &snapshot.sessions[0];
+    let session = &tmux.sessions[0];
     assert_eq!(session.name, "work");
     assert_eq!(session.size.as_tuple(), Some((120, 40)));
     assert!(!session.attached);
@@ -70,14 +77,15 @@ fn creates_legacy_backup_tree() {
         .map(|pane| pane.idstr())
         .collect::<Vec<_>>();
     assert_eq!(pane_ids, vec!["work:1.0", "work:1.1"]);
-    assert!(window.panes.iter().all(|pane| pane.cont_file.is_empty()));
 
     assert_eq!(
-        fs::read(backup_dir.join("work:1.0")).expect("pane content should be readable"),
+        fs::read(backup_dir.join("panes").join("work:1.0.txt"))
+            .expect("pane content should be readable"),
         b"pane0 with escape \x1b[31mred\x1b[0m\n"
     );
     assert_eq!(
-        fs::read(backup_dir.join("work:1.1")).expect("pane content should be readable"),
+        fs::read(backup_dir.join("panes").join("work:1.1.txt"))
+            .expect("pane content should be readable"),
         b"pane1 with escape \x1b[32mgreen\x1b[0m\n"
     );
 
@@ -99,7 +107,7 @@ fn duplicate_backup_id_fails() {
         .backup_root(&AppConfig::default())
         .join("existing_backup");
     fs::create_dir_all(&backup_dir).expect("should create duplicate backup dir");
-    let sentinel = backup_dir.join("existing_backup.json");
+    let sentinel = backup_dir.join("summary.json");
     fs::write(&sentinel, "sentinel").expect("should write sentinel snapshot");
 
     let output = env.run_binary(&["-b", "existing_backup"]);
@@ -188,7 +196,7 @@ fn trimmed_backup_name_is_normalized_for_create_and_lookup() {
 }
 
 #[test]
-fn default_backup_name_uses_legacy_timestamp_and_plain_capture_flag() {
+fn default_backup_name_uses_timestamp_and_plain_capture_flag() {
     let env = TestEnv::new("timestamp-fallback");
     env.write_config(false);
     env.install_fake_tmux();
@@ -208,10 +216,19 @@ fn default_backup_name_uses_legacy_timestamp_and_plain_capture_flag() {
     assert_backup_id_shape(backup_id);
 
     let backup_dir = backup_root.join(backup_id);
-    let json_path = backup_dir.join(format!("{backup_id}.json"));
-    assert!(json_path.is_file(), "expected generated snapshot json");
+    let summary_path = backup_dir.join("summary.json");
+    let manifest_path = backup_dir.join("manifest.json");
+    assert!(
+        summary_path.is_file(),
+        "expected generated snapshot summary"
+    );
+    assert!(
+        manifest_path.is_file(),
+        "expected generated snapshot manifest"
+    );
     assert_eq!(
-        fs::read(backup_dir.join("work:1.0")).expect("pane content should be readable"),
+        fs::read(backup_dir.join("panes").join("work:1.0.txt"))
+            .expect("pane content should be readable"),
         b"pane0 plain\n"
     );
 

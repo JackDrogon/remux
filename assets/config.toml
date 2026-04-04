@@ -1,0 +1,13 @@
+[logging]
+file = "info"
+console = "info"
+
+[capture]
+with_escape = true
+
+[tmux]
+binary = "tmux"
+
+[backup]
+dir_name = "backup"
+socket_dir_name = "backup-sockets"

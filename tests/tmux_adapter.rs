@@ -31,7 +31,7 @@ fn socket_prefix_is_inserted() {
 }
 
 #[test]
-fn rendered_command_templates_match_legacy_shapes() {
+fn rendered_command_templates_match_tmux_shapes() {
     let adapter = TmuxAdapter::from_prefix(vec!["tmux".to_string()], true);
 
     assert_eq!(

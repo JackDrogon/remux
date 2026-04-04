@@ -7,7 +7,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::model::Tmux;
-use crate::serde_legacy::{self, LegacySnapshotError};
+use crate::snapshot::{self, SnapshotError};
 
 const LIST_WIDTH: usize = 72;
 const TREE_SPACE: &str = "        ";
@@ -45,7 +45,7 @@ pub enum CatalogError {
     },
     ReadSnapshot {
         path: PathBuf,
-        source: LegacySnapshotError,
+        source: SnapshotError,
     },
     MissingBackupName {
         name: String,
@@ -344,13 +344,12 @@ fn read_backup_entry(
     metadata: fs::Metadata,
     load_mode: SnapshotLoadMode,
 ) -> Result<BackupEntry, CatalogError> {
-    let snapshot_path = path.join(format!("{backup_id}.json"));
     let snapshot = match load_mode {
-        SnapshotLoadMode::Full => serde_legacy::read_snapshot_file(&snapshot_path),
-        SnapshotLoadMode::Summary => serde_legacy::read_snapshot_summary_file(&snapshot_path),
+        SnapshotLoadMode::Full => snapshot::read_snapshot_dir(&path).map(|loaded| loaded.tmux),
+        SnapshotLoadMode::Summary => snapshot::read_snapshot_summary_dir(&path),
     }
     .map_err(|source| CatalogError::ReadSnapshot {
-        path: snapshot_path,
+        path: path.clone(),
         source,
     })?;
 

@@ -113,7 +113,6 @@ pub struct Pane {
     pub active: bool,
     pub sess_name: String,
     pub win_id: u32,
-    pub cont_file: String,
 }
 
 impl Pane {
@@ -128,7 +127,6 @@ impl Pane {
             active: false,
             sess_name: sess_name.into(),
             win_id,
-            cont_file: String::new(),
         }
     }
 

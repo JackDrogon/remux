@@ -7,7 +7,7 @@ use remux::config::{
 };
 
 #[test]
-fn default_socket_uses_legacy_backup_root() {
+fn default_socket_uses_default_backup_root() {
     let temp_home = TempHome::new("default-socket");
     let config = AppState::load_from_home(temp_home.path())
         .expect("default config should bootstrap and load");

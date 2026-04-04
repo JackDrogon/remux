@@ -1,9 +1,9 @@
+use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_long};
 use std::fmt;
-use std::fs;
 use std::io;
 use std::mem::MaybeUninit;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +11,7 @@ use crate::backup_name::BackupNameError;
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
-use crate::serde_legacy::{self, LegacySnapshotError};
+use crate::snapshot::{self, SnapshotError};
 use crate::tmux::{OUTPUT_SEPARATOR, TmuxAdapter, TmuxCommand};
 
 const BACKUP_ID_TIME_FORMAT: &[u8] = b"%Y%m%d_%H%M%S\0";
@@ -59,7 +59,7 @@ pub enum BackupError {
     },
     InvalidBackupName(BackupNameError),
     Tmux(SubprocessError),
-    Snapshot(LegacySnapshotError),
+    Snapshot(SnapshotError),
     Io {
         path: PathBuf,
         source: io::Error,
@@ -127,8 +127,8 @@ impl From<SubprocessError> for BackupError {
     }
 }
 
-impl From<LegacySnapshotError> for BackupError {
-    fn from(value: LegacySnapshotError) -> Self {
+impl From<SnapshotError> for BackupError {
+    fn from(value: SnapshotError) -> Self {
         Self::Snapshot(value)
     }
 }
@@ -150,22 +150,20 @@ pub fn capture_backup(
     }
 
     let snapshot = load_snapshot(&adapter, &backup_id)?;
-    let snapshot_file = backup_path.join(format!("{backup_id}.json"));
-    serde_legacy::write_snapshot_file(&snapshot_file, &snapshot)?;
+    let mut pane_contents = BTreeMap::new();
 
     for session in &snapshot.sessions {
         for window in &session.windows {
             for pane in &window.panes {
-                let pane_file = backup_path.join(pane.idstr());
-                write_pane_capture(
-                    &adapter,
-                    pane,
-                    config.config().capture.with_escape,
-                    &pane_file,
-                )?;
+                let pane_id = pane.idstr();
+                let pane_bytes =
+                    capture_pane_bytes(&adapter, pane, config.config().capture.with_escape)?;
+                pane_contents.insert(pane_id, pane_bytes);
             }
         }
     }
+
+    snapshot::write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
 
     Ok(BackupOutcome::Created {
         backup_id,
@@ -329,12 +327,11 @@ fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool, 
         })
 }
 
-fn write_pane_capture(
+fn capture_pane_bytes(
     adapter: &TmuxAdapter,
     pane: &Pane,
     include_escape: bool,
-    path: &Path,
-) -> Result<(), BackupError> {
+) -> Result<Vec<u8>, BackupError> {
     let command = adapter.render_command(TmuxCommand::CapturePane {
         pane_id: pane.idstr(),
         include_escape,
@@ -363,10 +360,7 @@ fn write_pane_capture(
         }));
     }
 
-    fs::write(path, output.stdout).map_err(|source| BackupError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
+    Ok(output.stdout)
 }
 
 fn normalize_stream(bytes: Vec<u8>) -> String {

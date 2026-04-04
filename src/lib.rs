@@ -7,7 +7,7 @@ pub mod error;
 pub mod interactive;
 pub mod model;
 pub mod restore;
-pub mod serde_legacy;
+pub mod snapshot;
 pub mod tmux;
 
 pub const BINARY_NAME: &str = "remux";
