@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::config::{socket_dir_name, AppConfig, ConfigPaths};
+use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
 use remux::storage;
 
 #[test]

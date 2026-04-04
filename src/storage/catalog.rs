@@ -13,7 +13,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use super::catalog_render;
 use super::fs_ops;
 use super::snapshot::{self, SnapshotError};
-use crate::backup_name::{normalize_backup_name, BackupNameError};
+use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::model::Tmux;
 

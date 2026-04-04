@@ -12,12 +12,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::backup_name::{normalize_backup_name, BackupNameError};
+use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Tmux, Window};
-use crate::storage::{read_snapshot_dir, LoadedSnapshot, PaneAsset, SnapshotError};
+use crate::storage::{LoadedSnapshot, PaneAsset, SnapshotError, read_snapshot_dir};
 use crate::tmux::{TmuxClient, TmuxRuntimeOptions};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -264,6 +264,26 @@ struct RestoreEngine<'a, T: TmuxClient + ?Sized> {
     dummy_session: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct VerifiedPaneAssets {
+    content_paths: BTreeMap<String, PathBuf>,
+}
+
+impl VerifiedPaneAssets {
+    fn insert(&mut self, pane_id: String, content_path: PathBuf) {
+        self.content_paths.insert(pane_id, content_path);
+    }
+
+    fn content_path(&self, pane_id: &str) -> Result<&Path, RestoreError> {
+        self.content_paths
+            .get(pane_id)
+            .map(PathBuf::as_path)
+            .ok_or_else(|| RestoreError::MissingPaneAsset {
+                pane_id: pane_id.to_string(),
+            })
+    }
+}
+
 impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn new(adapter: &'a T) -> Self {
         Self {
@@ -278,12 +298,13 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         snapshot: &LoadedSnapshot,
         backup_dir: &Path,
     ) -> Result<(), RestoreError> {
-        let sessions_to_restore =
-            self.collect_restorable_sessions(&snapshot.tmux, &snapshot.pane_assets, backup_dir)?;
+        let sessions_to_restore = self.collect_restorable_sessions(&snapshot.tmux)?;
+        let verified_panes =
+            self.validate_sessions(&sessions_to_restore, &snapshot.pane_assets, backup_dir)?;
         self.ensure_base_index_ready()?;
 
         for session in sessions_to_restore {
-            self.restore_session(session, &snapshot.pane_assets, backup_dir)?;
+            self.restore_session(session, &verified_panes)?;
         }
 
         Ok(())
@@ -292,8 +313,6 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn collect_restorable_sessions<'b>(
         &self,
         tmux: &'b Tmux,
-        pane_assets: &BTreeMap<String, PaneAsset>,
-        backup_dir: &Path,
     ) -> Result<Vec<&'b Session>, RestoreError> {
         let has_server = self.adapter.has_server()?;
         let mut sessions_to_restore = Vec::new();
@@ -303,7 +322,6 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
                 continue;
             }
 
-            self.validate_session_assets(session, pane_assets, backup_dir)?;
             sessions_to_restore.push(session);
         }
 
@@ -345,21 +363,20 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn restore_session(
         &mut self,
         session: &Session,
-        pane_assets: &BTreeMap<String, PaneAsset>,
-        backup_dir: &Path,
+        verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
         let (width, height) = session.size.as_tuple().unwrap_or(DEFAULT_SESSION_SIZE);
         self.adapter.create_session(&session.name, width, height)?;
 
         let windows = session.windows_in_reverse();
         for window in windows.iter().take(windows.len().saturating_sub(1)) {
-            self.restore_window(window, pane_assets, backup_dir)?;
+            self.restore_window(window, verified_panes)?;
             self.adapter
                 .create_empty_window(&session.name, self.ensure_base_index_ready()?)?;
         }
 
         if let Some(last_window) = windows.last() {
-            self.restore_window(last_window, pane_assets, backup_dir)?;
+            self.restore_window(last_window, verified_panes)?;
         }
 
         Ok(())
@@ -368,14 +385,13 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn restore_window(
         &mut self,
         window: &Window,
-        pane_assets: &BTreeMap<String, PaneAsset>,
-        backup_dir: &Path,
+        verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
         let win_base_index = self.ensure_base_index_ready()?;
         let window_id = window_id(window);
 
         self.restore_window_identity(window, win_base_index, window_id)?;
-        self.restore_window_panes(window, window_id, pane_assets, backup_dir)?;
+        self.restore_window_panes(window, window_id, verified_panes)?;
         self.adapter
             .select_layout(&window.sess_name, window_id, &window.layout)?;
         Ok(())
@@ -406,13 +422,12 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         &self,
         window: &Window,
         window_id: usize,
-        pane_assets: &BTreeMap<String, PaneAsset>,
-        backup_dir: &Path,
+        verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
         self.expand_window_panes(window, window_id)?;
 
         for pane in &window.panes {
-            self.restore_pane(pane, pane_assets, backup_dir)?;
+            self.restore_pane(pane, verified_panes)?;
         }
 
         Ok(())
@@ -435,34 +450,38 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn restore_pane(
         &self,
         pane: &Pane,
-        pane_assets: &BTreeMap<String, PaneAsset>,
-        backup_dir: &Path,
+        verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
         let pane_id = pane.idstr();
         self.adapter
             .set_pane_path(&pane_id, Path::new(&pane.path))?;
 
-        let content_path = self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
+        let content_path = verified_panes.content_path(&pane_id)?;
 
-        self.adapter
-            .restore_pane_content(&pane.idstr(), &content_path)?;
+        self.adapter.restore_pane_content(&pane_id, content_path)?;
         Ok(())
     }
 
-    fn validate_session_assets(
+    fn validate_sessions(
         &self,
-        session: &Session,
+        sessions: &[&Session],
         pane_assets: &BTreeMap<String, PaneAsset>,
         backup_dir: &Path,
-    ) -> Result<(), RestoreError> {
-        for window in &session.windows {
-            for pane in &window.panes {
-                let pane_id = pane.idstr();
-                let _ = self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
+    ) -> Result<VerifiedPaneAssets, RestoreError> {
+        let mut verified = VerifiedPaneAssets::default();
+
+        for session in sessions {
+            for window in &session.windows {
+                for pane in &window.panes {
+                    let pane_id = pane.idstr();
+                    let content_path =
+                        self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
+                    verified.insert(pane_id, content_path);
+                }
             }
         }
 
-        Ok(())
+        Ok(verified)
     }
 
     fn validated_pane_content_path(

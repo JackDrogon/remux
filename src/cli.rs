@@ -1,9 +1,9 @@
 use std::io;
 
 use crate::{
-    backup,
+    BINARY_NAME, backup,
     config::{AppState, ExecutionOptions},
-    interactive, restore, BINARY_NAME,
+    interactive, restore,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

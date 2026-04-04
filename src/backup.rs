@@ -17,11 +17,32 @@ use crate::backup_name::BackupNameError;
 use crate::config::AppState;
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
-use crate::storage::{write_snapshot_dir, SnapshotError};
-use crate::tmux::{TmuxClient, TmuxRuntimeOptions, OUTPUT_SEPARATOR};
+use crate::storage::{SnapshotError, write_snapshot_dir};
+use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions};
 
 const BACKUP_ID_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 const CREATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BackupTimestamp {
+    local_time: NaiveDateTime,
+}
+
+impl BackupTimestamp {
+    fn now() -> Self {
+        Self {
+            local_time: Local::now().naive_local(),
+        }
+    }
+
+    fn backup_id(self) -> String {
+        format_local_time(self.local_time, BACKUP_ID_TIME_FORMAT)
+    }
+
+    fn create_time(self) -> String {
+        format_local_time(self.local_time, CREATE_TIME_FORMAT)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackupOutcome {
@@ -114,8 +135,8 @@ fn capture_backup_with_client(
     requested_backup_id: Option<&str>,
     client: &impl TmuxClient,
 ) -> Result<BackupOutcome, BackupError> {
-    let now = Local::now().naive_local();
-    let backup_id = resolve_backup_id(requested_backup_id, now)?;
+    let timestamp = BackupTimestamp::now();
+    let backup_id = resolve_backup_id(requested_backup_id, timestamp)?;
     let backup_path = config.active_backup_path().join(&backup_id);
 
     if backup_path.exists() {
@@ -129,7 +150,7 @@ fn capture_backup_with_client(
         return Ok(BackupOutcome::NoServer);
     }
 
-    let snapshot = load_snapshot(client, &backup_id, now)?;
+    let snapshot = load_snapshot(client, &backup_id, timestamp)?;
     let pane_contents = capture_snapshot_panes(client, &snapshot)?;
 
     write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
@@ -142,22 +163,22 @@ fn capture_backup_with_client(
 
 fn resolve_backup_id(
     requested_backup_id: Option<&str>,
-    now: NaiveDateTime,
+    timestamp: BackupTimestamp,
 ) -> Result<String, BackupError> {
     match requested_backup_id {
         Some(backup_id) => crate::backup_name::normalize_backup_name(backup_id)
             .map_err(BackupError::InvalidBackupName),
-        None => Ok(format_local_time(now, BACKUP_ID_TIME_FORMAT)),
+        None => Ok(timestamp.backup_id()),
     }
 }
 
 fn load_snapshot(
     client: &impl TmuxClient,
     backup_id: &str,
-    now: NaiveDateTime,
+    timestamp: BackupTimestamp,
 ) -> Result<Tmux, BackupError> {
     let mut tmux = Tmux::new(backup_id);
-    tmux.create_time = format_local_time(now, CREATE_TIME_FORMAT);
+    tmux.create_time = timestamp.create_time();
     tmux.sessions = load_sessions(client)?;
     Ok(tmux)
 }
@@ -410,6 +431,19 @@ mod tests {
             format_local_time(local_time, CREATE_TIME_FORMAT),
             "2024-01-02 03:04:05"
         );
+    }
+
+    #[test]
+    fn backup_timestamp_formats_both_views_from_one_time() {
+        let timestamp = BackupTimestamp {
+            local_time: NaiveDate::from_ymd_opt(2024, 1, 2)
+                .expect("test date should be valid")
+                .and_hms_opt(3, 4, 5)
+                .expect("test time should be valid"),
+        };
+
+        assert_eq!(timestamp.backup_id(), "20240102_030405");
+        assert_eq!(timestamp.create_time(), "2024-01-02 03:04:05");
     }
 
     struct FakeBackupClient {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{Pane, Session, Size, Tmux, Window};
 
-use super::snapshot::{PaneAsset, SnapshotError, SUMMARY_FILE_NAME};
+use super::snapshot::{PaneAsset, SUMMARY_FILE_NAME, SnapshotError};
 
 const SNAPSHOT_SCHEMA_MAJOR: u16 = 1;
 const SNAPSHOT_SCHEMA_MINOR: u16 = 0;

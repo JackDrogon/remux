@@ -18,7 +18,7 @@ where
     R: BufRead,
     W: Write,
 {
-    let backups = storage::list_backups_for_listing(config).map_err(stringify_error)?;
+    let backups = load_listing_backups(config)?;
     if backups.is_empty() {
         show_no_backups(output)?;
         return Ok(());
@@ -27,15 +27,14 @@ where
     let mut detail_cache = vec![None; backups.len()];
 
     loop {
-        write_line(output, &storage::render_summary(&backups))?;
+        render_backup_summary(output, &backups)?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
         else {
             return Ok(());
         };
 
         if detail_cache[index].is_none() {
-            let detail =
-                storage::load_backup(config, &backups[index].id).map_err(stringify_error)?;
+            let detail = load_backup_detail(config, &backups[index].id)?;
             detail_cache[index] = Some(detail);
         }
 
@@ -43,7 +42,7 @@ where
             .as_ref()
             .expect("interactive list detail cache should be populated");
 
-        write_line(output, &storage::render_interactive_detail(detail))?;
+        render_interactive_backup_detail(output, detail)?;
     }
 }
 
@@ -82,20 +81,20 @@ where
     W: Write,
 {
     loop {
-        let backups = storage::list_backups(config).map_err(stringify_error)?;
+        let backups = load_backups(config)?;
         if backups.is_empty() {
             show_no_backups(output)?;
             return Ok(());
         }
 
-        write_line(output, &storage::render_summary(&backups))?;
+        render_backup_summary(output, &backups)?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), mode)? else {
             return Ok(());
         };
 
         let selected_backup = backups[index].id.clone();
-        let detail = storage::load_backup(config, &selected_backup).map_err(stringify_error)?;
-        write_line(output, &storage::render_detail(&detail))?;
+        let detail = load_backup_detail(config, &selected_backup)?;
+        render_backup_detail(output, &detail)?;
 
         match mode {
             FlowMode::Inspect => continue,
@@ -108,7 +107,7 @@ where
                     continue;
                 }
 
-                storage::delete_backup(config, &selected_backup).map_err(stringify_error)?;
+                delete_backup(config, &selected_backup)?;
                 write_line(output, &format!("Backup {selected_backup} was deleted"))?;
             }
             FlowMode::Restore => {
@@ -227,6 +226,46 @@ fn io_error(error: io::Error) -> String {
 
 fn stringify_error(error: impl ToString) -> String {
     error.to_string()
+}
+
+fn load_listing_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, String> {
+    storage::list_backups_for_listing(config).map_err(stringify_error)
+}
+
+fn load_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, String> {
+    storage::list_backups(config).map_err(stringify_error)
+}
+
+fn load_backup_detail(config: &AppState, backup_id: &str) -> Result<storage::BackupEntry, String> {
+    storage::load_backup(config, backup_id).map_err(stringify_error)
+}
+
+fn delete_backup(config: &AppState, backup_id: &str) -> Result<(), String> {
+    storage::delete_backup(config, backup_id).map_err(stringify_error)
+}
+
+fn render_backup_summary<W>(output: &mut W, backups: &[storage::BackupEntry]) -> Result<(), String>
+where
+    W: Write,
+{
+    write_line(output, &storage::render_summary(backups))
+}
+
+fn render_backup_detail<W>(output: &mut W, detail: &storage::BackupEntry) -> Result<(), String>
+where
+    W: Write,
+{
+    write_line(output, &storage::render_detail(detail))
+}
+
+fn render_interactive_backup_detail<W>(
+    output: &mut W,
+    detail: &storage::BackupEntry,
+) -> Result<(), String>
+where
+    W: Write,
+{
+    write_line(output, &storage::render_interactive_detail(detail))
 }
 
 fn show_no_backups<W>(output: &mut W) -> Result<(), String>
