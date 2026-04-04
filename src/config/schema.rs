@@ -13,9 +13,7 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.tmux.binary.trim().is_empty() {
-            return Err(ConfigError::InvalidTmuxBinary);
-        }
+        validate_tmux_binary(&self.tmux.binary)?;
 
         validate_backup_dir_name("dir_name", &self.backup.dir_name)?;
         validate_backup_dir_name("socket_dir_name", &self.backup.socket_dir_name)?;
@@ -98,6 +96,14 @@ impl Default for BackupConfig {
             socket_dir_name: "backup-sockets".to_string(),
         }
     }
+}
+
+fn validate_tmux_binary(binary: &str) -> Result<(), ConfigError> {
+    if binary.trim().is_empty() {
+        return Err(ConfigError::InvalidTmuxBinary);
+    }
+
+    Ok(())
 }
 
 fn validate_backup_dir_name(field: &'static str, value: &str) -> Result<(), ConfigError> {

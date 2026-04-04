@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use super::{AppConfig, ConfigError, ConfigPaths, loader};
+use super::{AppConfig, ConfigError, ConfigPaths, loader, paths::normalize_socket_name};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionOptions {
@@ -17,10 +17,7 @@ pub struct ExecutionOptions {
 impl ExecutionOptions {
     pub fn with_socket_name(socket_name: Option<&str>) -> Self {
         Self {
-            socket_name: socket_name
-                .map(str::trim)
-                .filter(|socket_name| !socket_name.is_empty())
-                .map(ToOwned::to_owned),
+            socket_name: normalize_socket_name(socket_name).map(ToOwned::to_owned),
         }
     }
 
@@ -109,11 +106,15 @@ impl ExecutionContext<'_> {
     }
 
     pub fn tmux_command_prefix(&self) -> Vec<String> {
-        let mut prefix = vec![self.config.tmux.binary.clone()];
-        if let Some(socket_name) = self.socket_name() {
-            prefix.push("-L".to_string());
-            prefix.push(socket_name.to_string());
-        }
-        prefix
+        tmux_command_prefix(&self.config.tmux.binary, self.socket_name())
     }
+}
+
+fn tmux_command_prefix(binary: &str, socket_name: Option<&str>) -> Vec<String> {
+    let mut prefix = vec![binary.to_string()];
+    if let Some(socket_name) = socket_name {
+        prefix.push("-L".to_string());
+        prefix.push(socket_name.to_string());
+    }
+    prefix
 }

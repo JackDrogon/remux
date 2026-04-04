@@ -122,19 +122,13 @@ impl TmuxAdapter {
     }
 
     pub fn list_sessions(&self) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_tmux_lines(
-            &self.run(TmuxCommand::ListSessions)?.stdout,
-        ))
+        self.run_and_split(TmuxCommand::ListSessions)
     }
 
     pub fn list_windows(&self, session_name: &str) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_tmux_lines(
-            &self
-                .run(TmuxCommand::ListWindows {
-                    session_name: session_name.to_string(),
-                })?
-                .stdout,
-        ))
+        self.run_and_split(TmuxCommand::ListWindows {
+            session_name: session_name.to_string(),
+        })
     }
 
     pub fn list_panes(
@@ -142,14 +136,10 @@ impl TmuxAdapter {
         session_name: &str,
         window_index: usize,
     ) -> Result<Vec<String>, SubprocessError> {
-        Ok(split_tmux_lines(
-            &self
-                .run(TmuxCommand::ListPanes {
-                    session_name: session_name.to_string(),
-                    window_index,
-                })?
-                .stdout,
-        ))
+        self.run_and_split(TmuxCommand::ListPanes {
+            session_name: session_name.to_string(),
+            window_index,
+        })
     }
 
     pub fn create_session(
@@ -158,12 +148,11 @@ impl TmuxAdapter {
         width: u32,
         height: u32,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::CreateSession {
+        self.run_unit(TmuxCommand::CreateSession {
             session_name: session_name.to_string(),
             width,
             height,
-        })?;
-        Ok(())
+        })
     }
 
     pub fn kill_session(&self, session_name: &str) -> Result<bool, SubprocessError> {
@@ -221,18 +210,16 @@ impl TmuxAdapter {
     }
 
     pub fn clear_pane(&self, pane_id: &str) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::ClearPane {
+        self.run_unit(TmuxCommand::ClearPane {
             pane_id: pane_id.to_string(),
-        })?;
-        Ok(())
+        })
     }
 
     pub fn send_keys(&self, target: &str, keys: &str) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::SendKeys {
+        self.run_unit(TmuxCommand::SendKeys {
             target: target.to_string(),
             keys: keys.to_string(),
-        })?;
-        Ok(())
+        })
     }
 
     pub fn set_pane_path(&self, pane_id: &str, path: &Path) -> Result<(), SubprocessError> {
@@ -248,19 +235,17 @@ impl TmuxAdapter {
         session_name: &str,
         base_index: usize,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::NewEmptyWindow {
+        self.run_unit(TmuxCommand::NewEmptyWindow {
             session_name: session_name.to_string(),
             base_index,
-        })?;
-        Ok(())
+        })
     }
 
     pub fn move_window(&self, source: &str, target: &str) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::MoveWindow {
+        self.run_unit(TmuxCommand::MoveWindow {
             source: source.to_string(),
             target: target.to_string(),
-        })?;
-        Ok(())
+        })
     }
 
     pub fn renumber_window(
@@ -281,12 +266,11 @@ impl TmuxAdapter {
         window_id: usize,
         name: &str,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::RenameWindow {
+        self.run_unit(TmuxCommand::RenameWindow {
             session_name: session_name.to_string(),
             window_id,
             name: name.to_string(),
-        })?;
-        Ok(())
+        })
     }
 
     pub fn select_window(
@@ -294,11 +278,10 @@ impl TmuxAdapter {
         session_name: &str,
         window_id: usize,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::SelectWindow {
+        self.run_unit(TmuxCommand::SelectWindow {
             session_name: session_name.to_string(),
             window_id,
-        })?;
-        Ok(())
+        })
     }
 
     pub fn split_window(
@@ -307,12 +290,11 @@ impl TmuxAdapter {
         window_id: usize,
         pane_min_id: usize,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::SplitWindow {
+        self.run_unit(TmuxCommand::SplitWindow {
             session_name: session_name.to_string(),
             window_id,
             pane_min_id,
-        })?;
-        Ok(())
+        })
     }
 
     pub fn select_layout(
@@ -321,12 +303,11 @@ impl TmuxAdapter {
         window_id: usize,
         layout: &str,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::SelectLayout {
+        self.run_unit(TmuxCommand::SelectLayout {
             session_name: session_name.to_string(),
             window_id,
             layout: layout.to_string(),
-        })?;
-        Ok(())
+        })
     }
 
     pub fn restore_pane_content(
@@ -334,10 +315,18 @@ impl TmuxAdapter {
         pane_id: &str,
         filename: &Path,
     ) -> Result<(), SubprocessError> {
-        self.run(TmuxCommand::LoadContent {
+        self.run_unit(TmuxCommand::LoadContent {
             pane_id: pane_id.to_string(),
             filename: filename.to_string_lossy().into_owned(),
-        })?;
+        })
+    }
+
+    fn run_and_split(&self, command: TmuxCommand) -> Result<Vec<String>, SubprocessError> {
+        Ok(split_tmux_lines(&self.run(command)?.stdout))
+    }
+
+    fn run_unit(&self, command: TmuxCommand) -> Result<(), SubprocessError> {
+        self.run(command)?;
         Ok(())
     }
 }

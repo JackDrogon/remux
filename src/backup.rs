@@ -256,10 +256,12 @@ fn load_panes(
     adapter
         .list_panes(
             session_name,
-            usize::try_from(window_id).map_err(|_| BackupError::InvalidTmuxOutput {
-                command: "list-panes",
-                line: format!("{session_name}:{window_id}"),
-                detail: "window id exceeds usize range".to_string(),
+            usize::try_from(window_id).map_err(|_| {
+                invalid_tmux_output(
+                    "list-panes",
+                    format!("{session_name}:{window_id}"),
+                    "window id exceeds usize range",
+                )
             })?,
         )?
         .into_iter()
@@ -287,11 +289,11 @@ fn split_fields<'a>(
     if fields.len() == expected_len {
         Ok(fields)
     } else {
-        Err(BackupError::InvalidTmuxOutput {
+        Err(invalid_tmux_output(
             command,
-            line: line.to_string(),
-            detail: format!("expected {expected_len} fields, found {}", fields.len()),
-        })
+            line.to_string(),
+            format!("expected {expected_len} fields, found {}", fields.len()),
+        ))
     }
 }
 
@@ -301,11 +303,7 @@ fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<
         .strip_prefix('(')
         .and_then(|value| value.strip_suffix(')'))
     else {
-        return Err(BackupError::InvalidTmuxOutput {
-            command,
-            line: line.to_string(),
-            detail: format!("invalid size tuple: {command_value}"),
-        });
+        return Err(invalid_size_tuple(command, line, command_value));
     };
 
     if inner.trim().is_empty() {
@@ -313,11 +311,7 @@ fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<
     }
 
     let Some((width, height)) = inner.split_once(',') else {
-        return Err(BackupError::InvalidTmuxOutput {
-            command,
-            line: line.to_string(),
-            detail: format!("invalid size tuple: {command_value}"),
-        });
+        return Err(invalid_size_tuple(command, line, command_value));
     };
 
     Ok(Size::new(
@@ -327,24 +321,46 @@ fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<
 }
 
 fn parse_u32(value: &str, command: &'static str, line: &str) -> Result<u32, BackupError> {
-    value
-        .parse::<u32>()
-        .map_err(|error| BackupError::InvalidTmuxOutput {
+    value.parse::<u32>().map_err(|error| {
+        invalid_tmux_output(
             command,
-            line: line.to_string(),
-            detail: format!("failed to parse integer {value:?}: {error}"),
-        })
+            line.to_string(),
+            format!("failed to parse integer {value:?}: {error}"),
+        )
+    })
 }
 
 fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool, BackupError> {
     value
         .parse::<i64>()
         .map(|value| value > 0)
-        .map_err(|error| BackupError::InvalidTmuxOutput {
-            command,
-            line: line.to_string(),
-            detail: format!("failed to parse active flag {value:?}: {error}"),
+        .map_err(|error| {
+            invalid_tmux_output(
+                command,
+                line.to_string(),
+                format!("failed to parse active flag {value:?}: {error}"),
+            )
         })
+}
+
+fn invalid_size_tuple(command: &'static str, line: &str, command_value: &str) -> BackupError {
+    invalid_tmux_output(
+        command,
+        line.to_string(),
+        format!("invalid size tuple: {command_value}"),
+    )
+}
+
+fn invalid_tmux_output(
+    command: &'static str,
+    line: String,
+    detail: impl Into<String>,
+) -> BackupError {
+    BackupError::InvalidTmuxOutput {
+        command,
+        line,
+        detail: detail.into(),
+    }
 }
 
 fn format_local_time(format: &'static [u8]) -> Result<String, BackupError> {

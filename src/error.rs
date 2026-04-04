@@ -117,9 +117,7 @@ impl fmt::Display for SubprocessError {
                 stderr,
                 ..
             } => {
-                let status = status
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "signal".to_string());
+                let status = format_status(*status);
                 if stderr.is_empty() {
                     write!(
                         f,
@@ -162,4 +160,10 @@ fn format_command(command: &[String]) -> String {
         })
         .collect::<Vec<String>>()
         .join(" ")
+}
+
+fn format_status(status: Option<i32>) -> String {
+    status
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "signal".to_string())
 }

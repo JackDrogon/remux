@@ -18,25 +18,24 @@ where
     R: BufRead,
     W: Write,
 {
-    let backups = catalog::list_backups_for_listing(config).map_err(|error| error.to_string())?;
+    let backups = catalog::list_backups_for_listing(config).map_err(stringify_error)?;
     if backups.is_empty() {
-        writeln!(output, "{}", catalog::no_backups_message()).map_err(io_error)?;
-        output.flush().map_err(io_error)?;
+        show_no_backups(output)?;
         return Ok(());
     }
 
     let mut detail_cache = vec![None; backups.len()];
 
     loop {
-        writeln!(output, "{}", catalog::render_summary(&backups)).map_err(io_error)?;
+        write_line(output, &catalog::render_summary(&backups))?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
         else {
             return Ok(());
         };
 
         if detail_cache[index].is_none() {
-            let detail = catalog::load_backup(config, &backups[index].id)
-                .map_err(|error| error.to_string())?;
+            let detail =
+                catalog::load_backup(config, &backups[index].id).map_err(stringify_error)?;
             detail_cache[index] = Some(detail);
         }
 
@@ -44,7 +43,7 @@ where
             .as_ref()
             .expect("interactive list detail cache should be populated");
 
-        writeln!(output, "{}", catalog::render_interactive_detail(detail)).map_err(io_error)?;
+        write_line(output, &catalog::render_interactive_detail(detail))?;
     }
 }
 
@@ -83,22 +82,20 @@ where
     W: Write,
 {
     loop {
-        let backups = catalog::list_backups(config).map_err(|error| error.to_string())?;
+        let backups = catalog::list_backups(config).map_err(stringify_error)?;
         if backups.is_empty() {
-            writeln!(output, "{}", catalog::no_backups_message()).map_err(io_error)?;
-            output.flush().map_err(io_error)?;
+            show_no_backups(output)?;
             return Ok(());
         }
 
-        writeln!(output, "{}", catalog::render_summary(&backups)).map_err(io_error)?;
+        write_line(output, &catalog::render_summary(&backups))?;
         let Some(index) = prompt_for_backup_index(input, output, backups.len(), mode)? else {
             return Ok(());
         };
 
         let selected_backup = backups[index].id.clone();
-        let detail =
-            catalog::load_backup(config, &selected_backup).map_err(|error| error.to_string())?;
-        writeln!(output, "{}", catalog::render_detail(&detail)).map_err(io_error)?;
+        let detail = catalog::load_backup(config, &selected_backup).map_err(stringify_error)?;
+        write_line(output, &catalog::render_detail(&detail))?;
 
         match mode {
             FlowMode::Inspect => continue,
@@ -111,9 +108,8 @@ where
                     continue;
                 }
 
-                catalog::delete_backup(config, &selected_backup)
-                    .map_err(|error| error.to_string())?;
-                writeln!(output, "Backup {selected_backup} was deleted").map_err(io_error)?;
+                catalog::delete_backup(config, &selected_backup).map_err(stringify_error)?;
+                write_line(output, &format!("Backup {selected_backup} was deleted"))?;
             }
             FlowMode::Restore => {
                 if !prompt_for_confirmation(
@@ -125,8 +121,8 @@ where
                 }
 
                 restore::restore_from_config(config, Some(&selected_backup))
-                    .map_err(|error| error.to_string())?;
-                writeln!(output, "Backup {selected_backup} was restored").map_err(io_error)?;
+                    .map_err(stringify_error)?;
+                write_line(output, &format!("Backup {selected_backup} was restored"))?;
                 return Ok(());
             }
         }
@@ -144,8 +140,7 @@ where
     W: Write,
 {
     loop {
-        write!(output, "remux> Please give backup No. (press q to exit): ").map_err(io_error)?;
-        output.flush().map_err(io_error)?;
+        prompt(output, "remux> Please give backup No. (press q to exit): ")?;
 
         let Some(line) = read_line(input)? else {
             return match mode {
@@ -162,17 +157,17 @@ where
         }
 
         if trimmed.is_empty() {
-            writeln!(output, "Invalid index: (empty)").map_err(io_error)?;
+            write_line(output, "Invalid index: (empty)")?;
             continue;
         }
 
         let Ok(index) = trimmed.parse::<usize>() else {
-            writeln!(output, "Invalid index: {trimmed}").map_err(io_error)?;
+            write_line(output, &format!("Invalid index: {trimmed}"))?;
             continue;
         };
 
         if !(1..=backup_count).contains(&index) {
-            writeln!(output, "Invalid index: {trimmed}").map_err(io_error)?;
+            write_line(output, &format!("Invalid index: {trimmed}"))?;
             continue;
         }
 
@@ -183,15 +178,14 @@ where
 fn prompt_for_confirmation<R, W>(
     input: &mut R,
     output: &mut W,
-    prompt: &str,
+    prompt_text: &str,
 ) -> Result<bool, String>
 where
     R: BufRead,
     W: Write,
 {
     loop {
-        write!(output, "{prompt}").map_err(io_error)?;
-        output.flush().map_err(io_error)?;
+        prompt(output, prompt_text)?;
 
         let Some(line) = read_line(input)? else {
             return Err("end of input while reading confirmation".to_string());
@@ -207,9 +201,9 @@ where
         }
 
         if trimmed.is_empty() {
-            writeln!(output, "Invalid confirmation: (empty)").map_err(io_error)?;
+            write_line(output, "Invalid confirmation: (empty)")?;
         } else {
-            writeln!(output, "Invalid confirmation: {trimmed}").map_err(io_error)?;
+            write_line(output, &format!("Invalid confirmation: {trimmed}"))?;
         }
     }
 }
@@ -229,4 +223,31 @@ where
 
 fn io_error(error: io::Error) -> String {
     format!("interactive I/O failed: {error}")
+}
+
+fn stringify_error(error: impl ToString) -> String {
+    error.to_string()
+}
+
+fn show_no_backups<W>(output: &mut W) -> Result<(), String>
+where
+    W: Write,
+{
+    write_line(output, catalog::no_backups_message())?;
+    output.flush().map_err(io_error)
+}
+
+fn write_line<W>(output: &mut W, message: &str) -> Result<(), String>
+where
+    W: Write,
+{
+    writeln!(output, "{message}").map_err(io_error)
+}
+
+fn prompt<W>(output: &mut W, message: &str) -> Result<(), String>
+where
+    W: Write,
+{
+    write!(output, "{message}").map_err(io_error)?;
+    output.flush().map_err(io_error)
 }

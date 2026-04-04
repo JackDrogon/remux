@@ -50,10 +50,7 @@ impl ConfigPaths {
 }
 
 pub fn socket_dir_name(socket_name: Option<&str>) -> Option<String> {
-    socket_name
-        .map(str::trim)
-        .filter(|socket_name| !socket_name.is_empty())
-        .map(sanitize_socket_name)
+    normalize_socket_name(socket_name).map(sanitize_socket_name)
 }
 
 pub fn sanitize_socket_name(socket_name: &str) -> String {
@@ -64,4 +61,10 @@ pub fn sanitize_socket_name(socket_name: &str) -> String {
             _ => '_',
         })
         .collect()
+}
+
+pub(crate) fn normalize_socket_name(socket_name: Option<&str>) -> Option<&str> {
+    socket_name
+        .map(str::trim)
+        .filter(|socket_name| !socket_name.is_empty())
 }

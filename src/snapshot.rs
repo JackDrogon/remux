@@ -283,14 +283,14 @@ pub fn read_snapshot_dir(snapshot_dir: &Path) -> Result<LoadedSnapshot, Snapshot
     let manifest_bytes = read_file(&manifest_path)?;
     let actual_hash = sha256_hex(&manifest_bytes);
     if summary.manifest_sha256 != actual_hash {
-        return Err(SnapshotError::SummaryManifestMismatch {
+        return Err(summary_manifest_mismatch(
             summary_path,
-            manifest_path: manifest_path.clone(),
-            detail: format!(
+            manifest_path.clone(),
+            format!(
                 "expected manifest sha {}, found {}",
                 summary.manifest_sha256, actual_hash
             ),
-        });
+        ));
     }
 
     let manifest = parse_manifest_file(&manifest_path, &manifest_bytes)?;
@@ -340,16 +340,17 @@ fn build_manifest(
                     return Err(SnapshotError::DuplicatePaneId { pane_id });
                 }
 
-                let content_ref = pane.idstr();
+                let content_ref = pane_id.clone();
                 if pane_table.contains_key(&content_ref) {
                     return Err(SnapshotError::DuplicateContentRef { content_ref });
                 }
 
-                let content = pane_contents.get(&pane.idstr()).ok_or_else(|| {
-                    SnapshotError::MissingPaneBytes {
-                        pane_id: pane.idstr(),
-                    }
-                })?;
+                let content =
+                    pane_contents
+                        .get(&pane_id)
+                        .ok_or_else(|| SnapshotError::MissingPaneBytes {
+                            pane_id: pane_id.clone(),
+                        })?;
                 let encoding = if std::str::from_utf8(content).is_ok() {
                     PaneEncoding::Utf8
                 } else {
@@ -428,18 +429,9 @@ fn build_summary(
         schema_version: current_version(),
         backup_id: manifest.backup_id.clone(),
         created_at: manifest.created_at.clone(),
-        session_count: u32::try_from(session_count).map_err(|_| SnapshotError::InvalidSummary {
-            path: PathBuf::from(SUMMARY_FILE_NAME),
-            detail: "session_count exceeds u32 range".to_string(),
-        })?,
-        window_count: u32::try_from(window_count).map_err(|_| SnapshotError::InvalidSummary {
-            path: PathBuf::from(SUMMARY_FILE_NAME),
-            detail: "window_count exceeds u32 range".to_string(),
-        })?,
-        pane_count: u32::try_from(pane_count).map_err(|_| SnapshotError::InvalidSummary {
-            path: PathBuf::from(SUMMARY_FILE_NAME),
-            detail: "pane_count exceeds u32 range".to_string(),
-        })?,
+        session_count: summary_count(session_count, "session_count")?,
+        window_count: summary_count(window_count, "window_count")?,
+        pane_count: summary_count(pane_count, "pane_count")?,
         session_names: tmux
             .sessions
             .iter()
@@ -498,12 +490,7 @@ where
 
 fn read_summary_file(path: &Path) -> Result<SnapshotSummaryFile, SnapshotError> {
     let bytes = read_file(path)?;
-    let summary = serde_json::from_slice::<SnapshotSummaryFile>(&bytes).map_err(|source| {
-        SnapshotError::Json {
-            path: path.to_path_buf(),
-            source,
-        }
-    })?;
+    let summary = read_json_slice::<SnapshotSummaryFile>(path, &bytes)?;
     ensure_supported_version(summary.schema_version, path)?;
     if summary.session_count as usize != summary.session_names.len() {
         return Err(SnapshotError::InvalidSummary {
@@ -515,12 +502,7 @@ fn read_summary_file(path: &Path) -> Result<SnapshotSummaryFile, SnapshotError> 
 }
 
 fn parse_manifest_file(path: &Path, bytes: &[u8]) -> Result<SnapshotManifestFile, SnapshotError> {
-    let manifest = serde_json::from_slice::<SnapshotManifestFile>(bytes).map_err(|source| {
-        SnapshotError::Json {
-            path: path.to_path_buf(),
-            source,
-        }
-    })?;
+    let manifest = read_json_slice::<SnapshotManifestFile>(path, bytes)?;
     ensure_supported_version(manifest.schema_version, path)?;
     Ok(manifest)
 }
@@ -531,18 +513,18 @@ fn validate_summary_matches_manifest(
     manifest_path: &Path,
 ) -> Result<(), SnapshotError> {
     if summary.backup_id != manifest.backup_id {
-        return Err(SnapshotError::SummaryManifestMismatch {
-            summary_path: PathBuf::from(SUMMARY_FILE_NAME),
-            manifest_path: manifest_path.to_path_buf(),
-            detail: "backup_id differs between summary and manifest".to_string(),
-        });
+        return Err(summary_manifest_mismatch(
+            PathBuf::from(SUMMARY_FILE_NAME),
+            manifest_path.to_path_buf(),
+            "backup_id differs between summary and manifest",
+        ));
     }
     if summary.created_at != manifest.created_at {
-        return Err(SnapshotError::SummaryManifestMismatch {
-            summary_path: PathBuf::from(SUMMARY_FILE_NAME),
-            manifest_path: manifest_path.to_path_buf(),
-            detail: "created_at differs between summary and manifest".to_string(),
-        });
+        return Err(summary_manifest_mismatch(
+            PathBuf::from(SUMMARY_FILE_NAME),
+            manifest_path.to_path_buf(),
+            "created_at differs between summary and manifest",
+        ));
     }
     Ok(())
 }
@@ -621,6 +603,35 @@ fn current_version() -> SchemaVersion {
     SchemaVersion {
         major: SNAPSHOT_SCHEMA_MAJOR,
         minor: SNAPSHOT_SCHEMA_MINOR,
+    }
+}
+
+fn summary_count(value: usize, field: &'static str) -> Result<u32, SnapshotError> {
+    u32::try_from(value).map_err(|_| SnapshotError::InvalidSummary {
+        path: PathBuf::from(SUMMARY_FILE_NAME),
+        detail: format!("{field} exceeds u32 range"),
+    })
+}
+
+fn read_json_slice<T>(path: &Path, bytes: &[u8]) -> Result<T, SnapshotError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_slice(bytes).map_err(|source| SnapshotError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn summary_manifest_mismatch(
+    summary_path: PathBuf,
+    manifest_path: PathBuf,
+    detail: impl Into<String>,
+) -> SnapshotError {
+    SnapshotError::SummaryManifestMismatch {
+        summary_path,
+        manifest_path,
+        detail: detail.into(),
     }
 }
 

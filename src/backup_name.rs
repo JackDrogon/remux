@@ -50,34 +50,32 @@ impl std::error::Error for BackupNameError {}
 pub fn normalize_backup_name(raw: &str) -> Result<String, BackupNameError> {
     let normalized = raw.trim();
     if normalized.is_empty() {
-        return Err(BackupNameError {
-            raw: raw.to_string(),
-            kind: BackupNameErrorKind::Empty,
-        });
+        return Err(invalid_backup_name(raw, BackupNameErrorKind::Empty));
     }
 
     if normalized == ".." {
-        return Err(BackupNameError {
-            raw: raw.to_string(),
-            kind: BackupNameErrorKind::ParentTraversal,
-        });
+        return Err(invalid_backup_name(
+            raw,
+            BackupNameErrorKind::ParentTraversal,
+        ));
     }
 
     if normalized.starts_with('\\') || Path::new(normalized).is_absolute() {
-        return Err(BackupNameError {
-            raw: raw.to_string(),
-            kind: BackupNameErrorKind::AbsoluteLike,
-        });
+        return Err(invalid_backup_name(raw, BackupNameErrorKind::AbsoluteLike));
     }
 
     if normalized.contains('/') || normalized.contains('\\') {
-        return Err(BackupNameError {
-            raw: raw.to_string(),
-            kind: BackupNameErrorKind::PathSeparator,
-        });
+        return Err(invalid_backup_name(raw, BackupNameErrorKind::PathSeparator));
     }
 
     Ok(normalized.to_string())
+}
+
+fn invalid_backup_name(raw: &str, kind: BackupNameErrorKind) -> BackupNameError {
+    BackupNameError {
+        raw: raw.to_string(),
+        kind,
+    }
 }
 
 #[cfg(test)]

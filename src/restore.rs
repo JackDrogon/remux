@@ -488,23 +488,31 @@ impl<'a> RestoreEngine<'a> {
             source,
         })?;
         if bytes.len() as u64 != asset.byte_len {
-            return Err(RestoreError::InvalidPaneContent {
-                pane_id: pane_id.to_string(),
-                path: content_path,
-                detail: format!("expected {} bytes, found {}", asset.byte_len, bytes.len()),
-            });
+            return Err(invalid_pane_content(
+                pane_id,
+                content_path,
+                format!("expected {} bytes, found {}", asset.byte_len, bytes.len()),
+            ));
         }
 
         let actual_hash = sha256_hex(&bytes);
         if actual_hash != asset.sha256 {
-            return Err(RestoreError::InvalidPaneContent {
-                pane_id: pane_id.to_string(),
-                path: content_path,
-                detail: format!("expected sha256 {}, found {}", asset.sha256, actual_hash),
-            });
+            return Err(invalid_pane_content(
+                pane_id,
+                content_path,
+                format!("expected sha256 {}, found {}", asset.sha256, actual_hash),
+            ));
         }
 
         Ok(content_path)
+    }
+}
+
+fn invalid_pane_content(pane_id: &str, path: PathBuf, detail: impl Into<String>) -> RestoreError {
+    RestoreError::InvalidPaneContent {
+        pane_id: pane_id.to_string(),
+        path,
+        detail: detail.into(),
     }
 }
 

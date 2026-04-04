@@ -16,26 +16,14 @@ fn bootstrap_config(paths: &ConfigPaths) -> Result<(), ConfigError> {
         return Ok(());
     }
 
-    fs::create_dir_all(&paths.user_path).map_err(|source| ConfigError::CreateDir {
-        path: paths.user_path.clone(),
-        source,
-    })?;
-    fs::write(&paths.config_file, DEFAULT_CONFIG_TEMPLATE).map_err(|source| {
-        ConfigError::WriteFile {
-            path: paths.config_file.clone(),
-            source,
-        }
-    })?;
+    create_dir_all(&paths.user_path)?;
+    write_file(&paths.config_file, DEFAULT_CONFIG_TEMPLATE)?;
 
     Ok(())
 }
 
 fn parse_config_file(paths: &ConfigPaths) -> Result<AppConfig, ConfigError> {
-    let content =
-        fs::read_to_string(&paths.config_file).map_err(|source| ConfigError::ReadFile {
-            path: paths.config_file.clone(),
-            source,
-        })?;
+    let content = read_to_string(&paths.config_file)?;
     let config: AppConfig = toml::from_str(&content).map_err(|source| ConfigError::ParseToml {
         path: paths.config_file.clone(),
         source,
@@ -46,8 +34,26 @@ fn parse_config_file(paths: &ConfigPaths) -> Result<AppConfig, ConfigError> {
 
 fn ensure_runtime_dirs(paths: &ConfigPaths, config: &AppConfig) -> Result<(), ConfigError> {
     let backup_root = paths.backup_root(config);
-    fs::create_dir_all(&backup_root).map_err(|source| ConfigError::CreateDir {
-        path: backup_root,
+    create_dir_all(&backup_root)
+}
+
+fn create_dir_all(path: &std::path::Path) -> Result<(), ConfigError> {
+    fs::create_dir_all(path).map_err(|source| ConfigError::CreateDir {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn write_file(path: &std::path::Path, content: &str) -> Result<(), ConfigError> {
+    fs::write(path, content).map_err(|source| ConfigError::WriteFile {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn read_to_string(path: &std::path::Path) -> Result<String, ConfigError> {
+    fs::read_to_string(path).map_err(|source| ConfigError::ReadFile {
+        path: path.to_path_buf(),
         source,
     })
 }

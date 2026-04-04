@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -33,10 +33,10 @@ impl fmt::Display for ConfigError {
         match self {
             Self::HomeDirNotFound => write!(f, "HOME is not set; cannot resolve ~/.remux"),
             Self::CreateDir { path, source } => {
-                write!(f, "failed to create {}: {source}", path.display())
+                display_path_error(f, "failed to create", path, source)
             }
             Self::ReadFile { path, source } => {
-                write!(f, "failed to read {}: {source}", path.display())
+                display_path_error(f, "failed to read", path, source)
             }
             Self::ParseToml { path, source } => {
                 write!(f, "failed to parse config {}: {source}", path.display())
@@ -46,10 +46,19 @@ impl fmt::Display for ConfigError {
                 write!(f, "backup.{field} must not be empty: {value:?}")
             }
             Self::WriteFile { path, source } => {
-                write!(f, "failed to write {}: {source}", path.display())
+                display_path_error(f, "failed to write", path, source)
             }
         }
     }
 }
 
 impl std::error::Error for ConfigError {}
+
+fn display_path_error(
+    f: &mut fmt::Formatter<'_>,
+    action: &str,
+    path: &Path,
+    source: &io::Error,
+) -> fmt::Result {
+    write!(f, "{action} {}: {source}", path.display())
+}
