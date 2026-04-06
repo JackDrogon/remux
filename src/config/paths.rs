@@ -41,6 +41,10 @@ impl ConfigPaths {
         self.user_path.join(&config.backup.socket_dir_name)
     }
 
+    pub fn observability_log_path(&self) -> PathBuf {
+        self.user_path.join("remux.log")
+    }
+
     pub fn active_backup_path(&self, config: &AppConfig, socket_name: Option<&str>) -> PathBuf {
         match socket_dir_name(socket_name) {
             Some(socket_dir_name) => self.backup_socket_root(config).join(socket_dir_name),

@@ -245,6 +245,145 @@ fn default_backup_name_uses_timestamp_and_plain_capture_flag() {
 }
 
 #[test]
+fn backup_writes_observability_log_file() {
+    let env = TestEnv::new("observability-log");
+    env.write_config(true);
+    env.install_fake_tmux();
+
+    let output = env.run_binary(&["backup", "backup_20240101_120000"]);
+    assert_success(&output, "backup should succeed with observability enabled");
+
+    let log_path = env.config_paths().observability_log_path();
+    let log = fs::read_to_string(&log_path).expect("observability log should be readable");
+
+    for expected in [
+        "observability initialized",
+        "dispatching cli action",
+        "tmux subprocess finished",
+        "backup snapshot written",
+    ] {
+        assert!(
+            log.contains(expected),
+            "expected observability log to contain {expected:?}, log was:\n{log}"
+        );
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.trim().is_empty(),
+        "expected default observability config to keep stderr clean, stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn backup_emits_observability_to_stderr_when_console_logging_is_enabled() {
+    let env = TestEnv::new("observability-console");
+    env.write_config_with_console_level(true, "info");
+    env.install_fake_tmux();
+
+    let output = env.run_binary(&["backup", "backup_20240101_120000"]);
+    assert_success(
+        &output,
+        "backup should succeed when console observability is explicitly enabled",
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in [
+        "observability initialized",
+        "dispatching cli action",
+        "backup snapshot written",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "expected stderr observability output to contain {expected:?}, stderr was: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn tmux_verbose_prints_executed_commands_to_stderr() {
+    let env = TestEnv::new("tmux-verbose");
+    env.write_config(true);
+    env.install_fake_tmux();
+
+    let output = env.run_binary(&["-v", "backup", "backup_20240101_120000"]);
+    assert_success(&output, "backup should succeed with tmux verbose enabled");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in [
+        "debug1: executing tmux command: tmux list-sessions",
+        "debug1: executing tmux command: tmux list-windows",
+        "debug1: executing tmux command: tmux list-panes -twork:1",
+        "debug1: executing tmux command: tmux capture-pane -ep -S-100000 -twork:1.0",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "expected tmux verbose stderr to contain {expected:?}, stderr was: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn tmux_verbose_level_two_prints_command_results_to_stderr() {
+    let env = TestEnv::new("tmux-verbose-level-two");
+    env.write_config(true);
+    env.install_fake_tmux();
+
+    let output = env.run_binary(&["-vv", "backup", "backup_20240101_120000"]);
+    assert_success(
+        &output,
+        "backup should succeed with tmux verbose level two enabled",
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("debug1: executing tmux command: tmux list-sessions"),
+        "expected -vv to keep command-start output, stderr was: {stderr}"
+    );
+    assert!(
+        stderr.contains("debug2: tmux command finished: tmux list-sessions"),
+        "expected -vv to add command-finish output, stderr was: {stderr}"
+    );
+    assert!(
+        stderr.contains("status=Some(0)")
+            && stderr.contains("elapsed_ms=")
+            && stderr.contains("byte_stream=true"),
+        "expected -vv to include command result details, stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn backup_continues_when_observability_log_path_is_unwritable() {
+    let env = TestEnv::new("observability-fallback");
+    env.write_config(true);
+    env.install_fake_tmux();
+
+    let log_path = env.config_paths().observability_log_path();
+    fs::create_dir_all(&log_path).expect("should turn observability log path into a directory");
+
+    let output = env.run_binary(&["backup", "backup_20240101_120000"]);
+    assert_success(
+        &output,
+        "backup should succeed even when file logging cannot start",
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.trim().is_empty(),
+        "expected fallback path to stay quiet with console logging off, stderr was: {stderr}"
+    );
+
+    let backup_dir = env
+        .config_paths()
+        .backup_root(&AppConfig::default())
+        .join("backup_20240101_120000");
+    assert!(
+        backup_dir.join("summary.json").is_file(),
+        "expected backup to complete despite observability fallback"
+    );
+}
+
+#[test]
 fn no_server_exits_cleanly() {
     let env = TestEnv::new("no-server");
     env.write_config(true);
@@ -399,12 +538,17 @@ impl TestEnv {
     }
 
     fn write_config(&self, content_with_escape: bool) {
+        self.write_config_with_console_level(content_with_escape, "off");
+    }
+
+    fn write_config_with_console_level(&self, content_with_escape: bool, console_level: &str) {
         let paths = self.config_paths();
         fs::create_dir_all(&paths.user_path).expect("should create ~/.remux");
         fs::write(
             &paths.config_file,
             format!(
-                "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = {}\n",
+                "[logging]\nfile = \"info\"\nconsole = \"{}\"\n\n[capture]\nwith_escape = {}\n",
+                console_level,
                 if content_with_escape { "true" } else { "false" }
             ),
         )

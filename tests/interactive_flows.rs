@@ -335,7 +335,7 @@ impl InteractiveEnv {
         fs::create_dir_all(&paths.user_path).expect("should create ~/.remux");
         fs::write(
             &paths.config_file,
-            "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = true\n",
+            "[logging]\nfile = \"info\"\nconsole = \"off\"\n\n[capture]\nwith_escape = true\n",
         )
         .expect("should write test config");
     }

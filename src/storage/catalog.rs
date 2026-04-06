@@ -73,6 +73,7 @@ pub enum CatalogError {
 }
 
 pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
+    tracing::debug!(root = %config.active_backup_path().display(), "listing full backups");
     load_backups(
         config,
         BackupSortOrder::ModifiedAtDesc,
@@ -81,6 +82,7 @@ pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError>
 }
 
 pub fn list_backups_for_listing(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
+    tracing::debug!(root = %config.active_backup_path().display(), "listing summary backups");
     load_backups(
         config,
         BackupSortOrder::BackupIdDesc,
@@ -92,6 +94,7 @@ pub fn load_backup(config: &AppState, backup_name: &str) -> Result<BackupEntry, 
     let normalized_name =
         normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
     let root = config.active_backup_path();
+    tracing::info!(backup_name = %normalized_name, root = %root.display(), "loading backup entry");
     read_backup_entry_in_root(&root, &normalized_name)
 }
 
@@ -115,6 +118,7 @@ pub fn resolve_restore_target(
 
 pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), CatalogError> {
     let entry = load_backup(config, backup_name)?;
+    tracing::info!(backup_name = %entry.id, path = %entry.path.display(), "deleting backup entry");
     fs_ops::remove_dir_all(&entry.path, |path, source| CatalogError::DeleteBackup {
         path,
         source,

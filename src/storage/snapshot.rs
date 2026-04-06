@@ -87,6 +87,12 @@ pub fn write_snapshot_dir(
     tmux: &Tmux,
     pane_contents: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(), SnapshotError> {
+    tracing::info!(
+        snapshot_dir = %snapshot_dir.display(),
+        session_count = tmux.sessions.len(),
+        pane_count = pane_contents.len(),
+        "writing snapshot directory"
+    );
     let parent = snapshot_parent_dir(snapshot_dir)?;
     create_dir_all(parent)?;
 
@@ -97,6 +103,7 @@ pub fn write_snapshot_dir(
     sync_dir(&temp_dir)?;
     fs_ops::rename(&temp_dir, snapshot_dir, io_error)?;
     sync_dir(parent)?;
+    tracing::info!(snapshot_dir = %snapshot_dir.display(), "snapshot directory committed");
     Ok(())
 }
 
@@ -107,6 +114,7 @@ pub fn read_snapshot_summary_dir(snapshot_dir: &Path) -> Result<Tmux, SnapshotEr
 }
 
 pub fn read_snapshot_dir(snapshot_dir: &Path) -> Result<LoadedSnapshot, SnapshotError> {
+    tracing::debug!(snapshot_dir = %snapshot_dir.display(), "reading snapshot directory");
     let summary_path = snapshot_dir.join(SUMMARY_FILE_NAME);
     let manifest_path = snapshot_dir.join(MANIFEST_FILE_NAME);
 
@@ -127,6 +135,12 @@ pub fn read_snapshot_dir(snapshot_dir: &Path) -> Result<LoadedSnapshot, Snapshot
     let manifest = parse_manifest_file(&manifest_path, &manifest_bytes)?;
     validate_summary_matches_manifest(&summary, &manifest, &manifest_path)?;
     let (tmux, pane_assets) = build_loaded_snapshot(snapshot_dir, manifest)?;
+    tracing::debug!(
+        snapshot_dir = %snapshot_dir.display(),
+        session_count = tmux.sessions.len(),
+        pane_asset_count = pane_assets.len(),
+        "snapshot directory loaded"
+    );
     Ok(LoadedSnapshot { tmux, pane_assets })
 }
 

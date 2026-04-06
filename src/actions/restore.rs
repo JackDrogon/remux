@@ -75,6 +75,12 @@ pub fn restore_from_config(
     config: &AppState,
     requested_backup: Option<&str>,
 ) -> Result<String, RestoreError> {
+    tracing::info!(
+        requested_backup = requested_backup.unwrap_or("latest"),
+        socket_name = config.socket_name().unwrap_or("default"),
+        backup_root = %config.active_backup_path().display(),
+        "starting restore"
+    );
     let adapter = TmuxRuntimeOptions::new(&config.config().tmux.binary)
         .socket_name(config.socket_name())
         .content_with_escape(config.config().capture.with_escape)
@@ -82,6 +88,7 @@ pub fn restore_from_config(
     let active_backup_path = config.active_backup_path();
     let backup_name = resolve_backup_name(&active_backup_path, requested_backup)?;
     restore_from_path_with_adapter(&active_backup_path, &adapter, &backup_name)?;
+    tracing::info!(backup_name, "restore completed");
     Ok(backup_name)
 }
 
@@ -232,10 +239,22 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         snapshot: &LoadedSnapshot,
         backup_dir: &Path,
     ) -> Result<(), RestoreError> {
+        tracing::info!(
+            backup_dir = %backup_dir.display(),
+            session_count = snapshot.tmux.sessions.len(),
+            pane_asset_count = snapshot.pane_assets.len(),
+            "restoring snapshot into tmux"
+        );
         let sessions_to_restore = self.collect_restorable_sessions(&snapshot.tmux)?;
         let verified_panes =
             self.validate_sessions(&sessions_to_restore, &snapshot.pane_assets, backup_dir)?;
         self.ensure_base_index_ready()?;
+
+        tracing::info!(
+            session_count = sessions_to_restore.len(),
+            pane_asset_count = verified_panes.content_paths.len(),
+            "validated restore inputs"
+        );
 
         for session in sessions_to_restore {
             self.restore_session(session, &verified_panes)?;
@@ -253,6 +272,7 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
 
         for session in &tmux.sessions {
             if has_server && self.adapter.has_session(&session.name)? {
+                tracing::debug!(session_name = %session.name, "skipping existing tmux session");
                 continue;
             }
 

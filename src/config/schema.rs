@@ -33,14 +33,15 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             file: LogLevel::Info,
-            console: LogLevel::Info,
+            console: LogLevel::Off,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
+    Off,
     Info,
     Debug,
     Error,
@@ -49,6 +50,7 @@ pub enum LogLevel {
 impl LogLevel {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Off => "off",
             Self::Info => "info",
             Self::Debug => "debug",
             Self::Error => "error",

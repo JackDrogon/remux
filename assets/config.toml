@@ -1,6 +1,6 @@
 [logging]
 file = "info"
-console = "info"
+console = "off"
 
 [capture]
 with_escape = true

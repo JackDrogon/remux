@@ -34,6 +34,10 @@ remux -L sockA backup backup_20240101_120000
 Backups are written to `~/.remux/backup` by default. When `-L <socket-name>` is active, remux
 isolates data under `~/.remux/backup-sockets/<sanitized-socket-name>`.
 
+Operational logs are written to `~/.remux/remux.log`. By default remux keeps console logging off so
+CLI stdout/stderr stay stable; adjust the `[logging]` section in `~/.remux/config.toml` when you
+need more verbosity during debugging.
+
 ## What remux stores
 
 - tmux sessions, including session names and terminal sizes

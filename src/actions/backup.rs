@@ -81,6 +81,12 @@ pub fn capture_backup(
     config: &AppState,
     requested_backup_id: Option<&str>,
 ) -> Result<BackupOutcome, BackupError> {
+    tracing::info!(
+        requested_backup_id = requested_backup_id.unwrap_or("-"),
+        socket_name = config.socket_name().unwrap_or("default"),
+        backup_root = %config.active_backup_path().display(),
+        "starting backup capture"
+    );
     let adapter = TmuxRuntimeOptions::new(&config.config().tmux.binary)
         .socket_name(config.socket_name())
         .content_with_escape(config.config().capture.with_escape)
@@ -97,6 +103,8 @@ fn capture_backup_with_client(
     let backup_id = resolve_backup_id(requested_backup_id, timestamp)?;
     let backup_path = config.active_backup_path().join(&backup_id);
 
+    tracing::info!(backup_id, path = %backup_path.display(), "resolved backup destination");
+
     if backup_path.exists() {
         return Err(BackupError::DuplicateBackupId {
             backup_id,
@@ -105,13 +113,29 @@ fn capture_backup_with_client(
     }
 
     if !client.has_server()? {
+        tracing::info!("skipping backup because no tmux server is running");
         return Ok(BackupOutcome::NoServer);
     }
 
     let snapshot = load_snapshot(client, &backup_id, timestamp)?;
     let pane_contents = capture_snapshot_panes(client, &snapshot)?;
+    let session_count = snapshot.sessions.len();
+    let window_count = snapshot
+        .sessions
+        .iter()
+        .map(|session| session.windows.len())
+        .sum::<usize>();
 
     write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
+
+    tracing::info!(
+        backup_id = %snapshot.tid,
+        path = %backup_path.display(),
+        session_count,
+        window_count,
+        pane_count = pane_contents.len(),
+        "backup snapshot written"
+    );
 
     Ok(BackupOutcome::Created {
         backup_id,
@@ -152,6 +176,7 @@ fn capture_snapshot_panes(
             for pane in &window.panes {
                 let pane_id = pane.idstr();
                 let pane_bytes = client.capture_pane_bytes(&pane_id)?;
+                tracing::debug!(pane_id, byte_len = pane_bytes.len(), "captured pane bytes");
                 pane_contents.insert(pane_id, pane_bytes);
             }
         }

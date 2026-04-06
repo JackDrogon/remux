@@ -123,7 +123,7 @@ fn malformed_config_is_reported() {
     fs::create_dir_all(&paths.user_path).expect("should create ~/.remux for malformed test");
     fs::write(
         &paths.config_file,
-        "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = \"maybe\"\n",
+        "[logging]\nfile = \"info\"\nconsole = \"off\"\n\n[capture]\nwith_escape = \"maybe\"\n",
     )
     .expect("should write malformed config");
 
@@ -143,7 +143,7 @@ fn unknown_config_fields_are_rejected() {
     fs::create_dir_all(&paths.user_path).expect("should create ~/.remux for unknown-field test");
     fs::write(
         &paths.config_file,
-        "[logging]\nfile = \"info\"\nconsole = \"info\"\nextra = true\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"tmux\"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
+        "[logging]\nfile = \"info\"\nconsole = \"off\"\nextra = true\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"tmux\"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
     )
     .expect("should write unknown-field config");
 
@@ -164,7 +164,7 @@ fn empty_tmux_binary_is_rejected() {
         .expect("should create ~/.remux for empty-tmux-binary test");
     fs::write(
         &paths.config_file,
-        "[logging]\nfile = \"info\"\nconsole = \"info\"\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"   \"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
+        "[logging]\nfile = \"info\"\nconsole = \"off\"\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"   \"\n\n[backup]\ndir_name = \"backup\"\nsocket_dir_name = \"backup-sockets\"\n",
     )
     .expect("should write invalid tmux config");
 
@@ -179,7 +179,7 @@ fn default_app_config_exposes_readable_sections() {
     let config = AppConfig::default();
 
     assert_eq!(config.logging.file.as_str(), "info");
-    assert_eq!(config.logging.console.as_str(), "info");
+    assert_eq!(config.logging.console.as_str(), "off");
     assert_eq!(config.tmux.binary, "tmux");
     assert_eq!(config.backup.dir_name, "backup");
     assert_eq!(config.backup.socket_dir_name, "backup-sockets");

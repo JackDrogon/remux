@@ -5,9 +5,11 @@ pub mod config;
 pub mod error;
 pub(crate) mod hash;
 pub mod model;
+pub(crate) mod observability;
 pub mod storage;
 pub mod tmux;
 pub mod ui;
+pub mod vlog;
 
 pub const BINARY_NAME: &str = "remux";
 pub const HOME_DIR_NAME: &str = ".remux";

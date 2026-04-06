@@ -95,6 +95,10 @@ impl AppState {
     pub fn tmux_command_prefix(&self) -> Vec<String> {
         self.execution_context().tmux_command_prefix()
     }
+
+    pub fn observability_log_path(&self) -> PathBuf {
+        self.paths.observability_log_path()
+    }
 }
 
 impl ExecutionContext<'_> {

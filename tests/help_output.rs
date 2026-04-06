@@ -26,6 +26,8 @@ fn help_shows_branding_commands_and_footer() {
         "restore",
         "Restore tmux sessions from backup",
         "Options:",
+        "-v, --tmux-verbose",
+        "Increase tmux command verbosity",
         "-L <socket-name>",
         "-V, --version",
         "Examples:",

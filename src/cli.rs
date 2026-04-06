@@ -1,13 +1,17 @@
 use std::io;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, error::ErrorKind as ClapErrorKind};
+use clap::{
+    ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand,
+    error::ErrorKind as ClapErrorKind,
+};
 
 use crate::{
     BINARY_NAME,
     actions::{backup, interactive, restore},
     config::{AppState, ExecutionOptions},
     error::{AppError, AppResult},
-    ui,
+    observability, ui,
+    vlog::{self, VLogLevel},
 };
 
 const CLI_AFTER_HELP: &str = concat!(
@@ -31,9 +35,22 @@ pub enum Action {
     InteractiveRestore,
 }
 
+impl Action {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::List => "list",
+            Self::Delete => "delete",
+            Self::Backup => "backup",
+            Self::Restore => "restore",
+            Self::InteractiveRestore => "interactive-restore",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliArgs {
     pub socket_name: Option<String>,
+    pub vlog_level: u8,
     pub action: Action,
     pub action_arg: Option<String>,
 }
@@ -84,6 +101,15 @@ struct Cli {
         long_help = "Use socket-name for the tmux server socket. The default socket is named default, and a different socket-name allows multiple independent tmux servers."
     )]
     socket_name: Option<String>,
+
+    #[arg(
+        short = 'v',
+        long = "tmux-verbose",
+        global = true,
+        action = ArgAction::Count,
+        help = "Increase tmux command verbosity"
+    )]
+    vlog_level: u8,
 
     #[command(subcommand)]
     command: Commands,
@@ -155,10 +181,43 @@ where
     };
 
     let mut config = AppState::load()?;
+    let vlog_level = VLogLevel::from_flag_count(parsed.vlog_level);
+    vlog::init(vlog_level);
     config.set_execution_options(ExecutionOptions::with_socket_name(
         parsed.socket_name.as_deref(),
     ));
-    dispatch(parsed, &config)
+
+    let action = parsed.action;
+    let requested_backup = parsed.action_arg.clone();
+    let result = observability::run_with(
+        &config,
+        action.as_str(),
+        requested_backup.as_deref(),
+        || {
+            tracing::info!(
+                action = action.as_str(),
+                requested_backup = requested_backup.as_deref().unwrap_or("-"),
+                socket_name = config.socket_name().unwrap_or("default"),
+                vlog_level = ?vlog_level,
+                "dispatching cli action"
+            );
+            let result = dispatch(parsed, &config);
+
+            match &result {
+                Ok(()) => tracing::info!(action = action.as_str(), "cli action completed"),
+                Err(error) => tracing::error!(
+                    action = action.as_str(),
+                    error = %error,
+                    debug_error = ?error,
+                    "cli action failed"
+                ),
+            }
+
+            result
+        },
+    );
+
+    result
 }
 
 pub fn render_error(error: &AppError) -> String {
@@ -190,6 +249,7 @@ impl Cli {
 
         CliArgs {
             socket_name: self.socket_name,
+            vlog_level: self.vlog_level,
             action,
             action_arg,
         }

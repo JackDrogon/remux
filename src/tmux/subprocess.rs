@@ -3,10 +3,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::error::SubprocessError;
+use crate::vlog::{self, VLogLevel};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CommandOutput {
     pub command: Vec<String>,
     pub status: Option<i32>,
@@ -20,7 +21,7 @@ impl CommandOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ByteCommandOutput {
     pub command: Vec<String>,
     pub status: Option<i32>,
@@ -51,27 +52,79 @@ impl SubprocessRunner {
     }
 
     fn run(&self, command: Vec<String>) -> Result<CommandOutput, SubprocessError> {
-        let child = spawn_command(&command)?;
-        let output = wait_for_output(command.clone(), child, self.timeout)?;
+        let started_at = Instant::now();
+        log_tmux_command_start(&command);
+        let child = match spawn_command(&command) {
+            Ok(child) => child,
+            Err(error) => {
+                log_tmux_command_failure(&command, started_at.elapsed(), &error, false);
+                log_subprocess_error(&command, &error, started_at.elapsed(), false);
+                return Err(error);
+            }
+        };
+        let output = match wait_for_output(command.clone(), child, self.timeout) {
+            Ok(output) => output,
+            Err(error) => {
+                log_tmux_command_failure(&command, started_at.elapsed(), &error, false);
+                log_subprocess_error(&command, &error, started_at.elapsed(), false);
+                return Err(error);
+            }
+        };
 
-        Ok(CommandOutput {
+        let output = CommandOutput {
             command,
             status: output.status.code(),
             stdout: normalize_output_stream(output.stdout),
             stderr: normalize_output_stream(output.stderr),
-        })
+        };
+        log_tmux_command_finish(
+            &output.command,
+            output.status,
+            started_at.elapsed(),
+            output.stdout.len(),
+            output.stderr.len(),
+            false,
+        );
+        log_command_output(&output, started_at.elapsed(), false);
+        Ok(output)
     }
 
     fn run_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput, SubprocessError> {
-        let child = spawn_command(&command)?;
-        let output = wait_for_output(command.clone(), child, self.timeout)?;
+        let started_at = Instant::now();
+        log_tmux_command_start(&command);
+        let child = match spawn_command(&command) {
+            Ok(child) => child,
+            Err(error) => {
+                log_tmux_command_failure(&command, started_at.elapsed(), &error, true);
+                log_subprocess_error(&command, &error, started_at.elapsed(), true);
+                return Err(error);
+            }
+        };
+        let output = match wait_for_output(command.clone(), child, self.timeout) {
+            Ok(output) => output,
+            Err(error) => {
+                log_tmux_command_failure(&command, started_at.elapsed(), &error, true);
+                log_subprocess_error(&command, &error, started_at.elapsed(), true);
+                return Err(error);
+            }
+        };
 
-        Ok(ByteCommandOutput {
+        let output = ByteCommandOutput {
             command,
             status: output.status.code(),
             stdout: output.stdout,
             stderr: output.stderr,
-        })
+        };
+        log_tmux_command_finish(
+            &output.command,
+            output.status,
+            started_at.elapsed(),
+            output.stdout.len(),
+            output.stderr.len(),
+            true,
+        );
+        log_byte_command_output(&output, started_at.elapsed());
+        Ok(output)
     }
 }
 
@@ -144,6 +197,102 @@ fn wait_for_output(
     child
         .wait_with_output()
         .map_err(|source| SubprocessError::WaitFailed { command, source })
+}
+
+fn log_command_output(output: &CommandOutput, elapsed: Duration, byte_stream: bool) {
+    tracing::info!(
+        command = %format_command_for_log(&output.command),
+        status_code = ?output.status,
+        elapsed_ms = elapsed.as_millis() as u64,
+        stdout_len = output.stdout.len(),
+        stderr_len = output.stderr.len(),
+        byte_stream,
+        "tmux subprocess finished"
+    );
+}
+
+fn log_byte_command_output(output: &ByteCommandOutput, elapsed: Duration) {
+    tracing::info!(
+        command = %format_command_for_log(&output.command),
+        status_code = ?output.status,
+        elapsed_ms = elapsed.as_millis() as u64,
+        stdout_len = output.stdout.len(),
+        stderr_len = output.stderr.len(),
+        byte_stream = true,
+        "tmux subprocess finished"
+    );
+}
+
+fn log_subprocess_error(
+    command: &[String],
+    error: &SubprocessError,
+    elapsed: Duration,
+    byte_stream: bool,
+) {
+    tracing::error!(
+        command = %format_command_for_log(command),
+        error = %error,
+        debug_error = ?error,
+        elapsed_ms = elapsed.as_millis() as u64,
+        byte_stream,
+        "tmux subprocess failed"
+    );
+}
+
+fn format_command_for_log(command: &[String]) -> String {
+    command
+        .iter()
+        .map(|part| {
+            if part.is_empty() || part.chars().any(char::is_whitespace) {
+                format!("{part:?}")
+            } else {
+                part.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn log_tmux_command_start(command: &[String]) {
+    let rendered_command = format_command_for_log(command);
+    vlog::log(
+        VLogLevel::Debug1,
+        format_args!("debug1: executing tmux command: {rendered_command}\n"),
+    );
+}
+
+fn log_tmux_command_finish(
+    command: &[String],
+    status_code: Option<i32>,
+    elapsed: Duration,
+    stdout_len: usize,
+    stderr_len: usize,
+    byte_stream: bool,
+) {
+    let rendered_command = format_command_for_log(command);
+    vlog::log(
+        VLogLevel::Debug2,
+        format_args!(
+            "debug2: tmux command finished: {rendered_command} status={status_code:?} elapsed_ms={} stdout_len={stdout_len} stderr_len={stderr_len} byte_stream={byte_stream}\n",
+            elapsed.as_millis() as u64,
+        ),
+    );
+}
+
+fn log_tmux_command_failure(
+    command: &[String],
+    elapsed: Duration,
+    error: &SubprocessError,
+    byte_stream: bool,
+) {
+    let rendered_command = format_command_for_log(command);
+    vlog::log(
+        VLogLevel::Debug2,
+        format_args!(
+            "debug2: tmux command failed: {rendered_command} elapsed_ms={} byte_stream={byte_stream} error={error}\n",
+            elapsed.as_millis() as u64,
+        ),
+    );
 }
 
 pub(crate) fn normalize_output_stream(bytes: Vec<u8>) -> String {
