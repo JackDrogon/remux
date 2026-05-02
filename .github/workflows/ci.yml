@@ -37,7 +37,7 @@ jobs:
         run: dprint check README.md .github/workflows/ci.yml Cargo.toml .config/nextest.toml
 
       - name: Run typos
-        uses: crate-ci/typos@v1.35.5
+        uses: crate-ci/typos@v1.46.0
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
