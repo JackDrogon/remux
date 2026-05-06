@@ -4,6 +4,7 @@ mod command;
 mod error;
 mod prefix;
 mod runtime;
+mod sockets;
 mod subprocess;
 
 pub use adapter::TmuxAdapter;
@@ -15,4 +16,5 @@ pub use command::{
 pub use error::SubprocessError;
 pub use prefix::{TmuxCommandPrefixBuilder, tmux_command_prefix};
 pub use runtime::TmuxRuntimeOptions;
+pub use sockets::{discover_socket_names, socket_dir};
 pub use subprocess::{ByteCommandOutput, CommandOutput, SubprocessExecutor, SubprocessRunner};

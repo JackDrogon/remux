@@ -14,11 +14,11 @@ use chrono::{Local, NaiveDateTime};
 use thiserror::Error;
 
 use crate::backup_name::BackupNameError;
-use crate::config::AppState;
+use crate::config::{AppState, ExecutionOptions};
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
 use crate::storage::{SnapshotError, write_snapshot_dir};
-use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions};
+use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions, discover_socket_names};
 
 const BACKUP_ID_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 const CREATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
@@ -50,6 +50,12 @@ pub enum BackupOutcome {
     NoServer,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketBackupOutcome {
+    pub socket_name: String,
+    pub outcome: BackupOutcome,
+}
+
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error(
@@ -66,6 +72,11 @@ pub enum BackupError {
     #[error("failed to write {}: {source}", path.display())]
     Io {
         path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to discover tmux sockets: {source}")]
+    SocketDiscovery {
         #[source]
         source: io::Error,
     },
@@ -92,6 +103,40 @@ pub fn capture_backup(
         .content_with_escape(config.config().capture.with_escape)
         .build_adapter();
     capture_backup_with_client(config, requested_backup_id, &adapter)
+}
+
+pub fn capture_all_socket_backups(
+    config: &AppState,
+) -> Result<Vec<SocketBackupOutcome>, BackupError> {
+    let socket_names =
+        discover_socket_names().map_err(|source| BackupError::SocketDiscovery { source })?;
+
+    if socket_names.is_empty() {
+        return capture_backup(config, None).map(|outcome| {
+            vec![SocketBackupOutcome {
+                socket_name: "default".to_string(),
+                outcome,
+            }]
+        });
+    }
+
+    socket_names
+        .into_iter()
+        .map(|socket_name| {
+            let mut socket_config = config.clone();
+            let execution_socket_name = if socket_name == "default" {
+                None
+            } else {
+                Some(socket_name.as_str())
+            };
+            socket_config
+                .set_execution_options(ExecutionOptions::with_socket_name(execution_socket_name));
+            capture_backup(&socket_config, None).map(|outcome| SocketBackupOutcome {
+                socket_name,
+                outcome,
+            })
+        })
+        .collect()
 }
 
 fn capture_backup_with_client(

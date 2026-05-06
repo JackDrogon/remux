@@ -298,6 +298,10 @@ fn do_delete(config: &AppState, backup_name: &str) -> AppResult<()> {
 }
 
 fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
+    if action_arg.is_none() && config.socket_name().is_none() {
+        return do_backup_all_sockets(config);
+    }
+
     match backup::capture_backup(config, action_arg) {
         Ok(backup::BackupOutcome::Created { path, .. }) => {
             println!("Backup of sessions was saved under {}", path.display());
@@ -305,6 +309,38 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
         }
         Ok(backup::BackupOutcome::NoServer) => {
             println!("No tmux session found, nothing to backup");
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn do_backup_all_sockets(config: &AppState) -> AppResult<()> {
+    match backup::capture_all_socket_backups(config) {
+        Ok(outcomes) => {
+            let mut created_count = 0usize;
+            for outcome in outcomes {
+                match outcome.outcome {
+                    backup::BackupOutcome::Created { path, .. } => {
+                        created_count += 1;
+                        println!(
+                            "Backup of sessions for socket {} was saved under {}",
+                            outcome.socket_name,
+                            path.display()
+                        );
+                    }
+                    backup::BackupOutcome::NoServer => {
+                        println!(
+                            "No tmux session found for socket {}, nothing to backup",
+                            outcome.socket_name
+                        );
+                    }
+                }
+            }
+
+            if created_count == 0 {
+                println!("No tmux session found, nothing to backup");
+            }
             Ok(())
         }
         Err(error) => Err(error.into()),

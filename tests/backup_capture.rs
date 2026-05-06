@@ -7,6 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use remux::config::{AppConfig, ConfigPaths, socket_dir_name};
 use remux::storage;
 
+unsafe extern "C" {
+    fn geteuid() -> u32;
+}
+
 #[test]
 fn creates_snapshot_tree() {
     let env = TestEnv::new("creates-tree");
@@ -241,6 +245,57 @@ fn default_backup_name_uses_timestamp_and_plain_capture_flag() {
     assert!(
         !log.lines().any(|line| line.contains("capture-pane -ep ")),
         "did not expect -ep when content.with.escape is false, log was:\n{log}"
+    );
+}
+
+#[test]
+fn unnamed_default_backup_captures_all_discovered_sockets() {
+    let env = TestEnv::new("all-sockets-default");
+    env.write_config(false);
+    env.install_fake_tmux();
+    env.create_tmux_socket("default");
+    env.create_tmux_socket("sockA");
+
+    let output = env.run_binary(&["backup"]);
+    assert_success(&output, "unnamed backup should capture all sockets");
+
+    let default_backup_root = env.config_paths().backup_root(&AppConfig::default());
+    let named_backup_root = env
+        .config_paths()
+        .backup_socket_root(&AppConfig::default())
+        .join(socket_dir_name(Some("sockA")).unwrap());
+    let default_backup_ids = list_directory_names(&default_backup_root);
+    let named_backup_ids = list_directory_names(&named_backup_root);
+
+    assert_eq!(
+        default_backup_ids.len(),
+        1,
+        "expected one generated backup for default socket"
+    );
+    assert_eq!(
+        named_backup_ids.len(),
+        1,
+        "expected one generated backup for sockA"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Backup of sessions for socket default was saved under"),
+        "expected default socket backup output, stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("Backup of sessions for socket sockA was saved under"),
+        "expected sockA backup output, stdout was: {stdout}"
+    );
+
+    let log = env.read_fake_log();
+    assert!(
+        log.lines().any(|line| line.starts_with("list-sessions")),
+        "expected default socket probe, log was:\n{log}"
+    );
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("-L sockA list-sessions")),
+        "expected sockA socket probe, log was:\n{log}"
     );
 }
 
@@ -566,6 +621,12 @@ impl TestEnv {
             .expect("should make fake tmux script executable");
     }
 
+    fn create_tmux_socket(&self, socket_name: &str) {
+        let socket_dir = self.root.join(format!("tmux-{}", current_uid()));
+        fs::create_dir_all(&socket_dir).expect("tmux socket directory should be created");
+        fs::write(socket_dir.join(socket_name), "").expect("fake tmux socket should be created");
+    }
+
     fn run_binary(&self, args: &[&str]) -> Output {
         self.run_binary_inner(args, false)
     }
@@ -587,6 +648,7 @@ impl TestEnv {
         command.args(args);
         command.env("HOME", &self.home);
         command.env("PATH", &self.bin_dir);
+        command.env("TMUX_TMPDIR", &self.root);
         command.env("REMUX_FAKE_LOG", &self.fake_log);
         if no_server {
             command.env("REMUX_FAKE_NO_SERVER", "1");
@@ -595,6 +657,10 @@ impl TestEnv {
             .output()
             .expect("binary invocation should complete successfully")
     }
+}
+
+fn current_uid() -> u32 {
+    unsafe { geteuid() }
 }
 
 impl Drop for TestEnv {
