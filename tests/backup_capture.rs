@@ -327,6 +327,66 @@ fn unnamed_default_backup_ignores_regular_files_in_socket_dir() {
 }
 
 #[test]
+fn unnamed_default_backup_reports_successful_sockets_when_a_later_socket_fails() {
+    let env = TestEnv::new("partial-socket-failure");
+    env.write_config(false);
+    env.install_fake_tmux();
+    env.create_tmux_socket("sockA");
+    env.create_tmux_socket("sockB");
+
+    let output = env.run_binary_failing_socket(&["backup"], "sockB");
+    assert!(
+        !output.status.success(),
+        "later socket failure should keep the command unsuccessful: {output:?}"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let sock_a_root = env
+        .config_paths()
+        .backup_socket_root(&AppConfig::default())
+        .join(socket_dir_name(Some("sockA")).unwrap());
+    let sock_b_root = env
+        .config_paths()
+        .backup_socket_root(&AppConfig::default())
+        .join(socket_dir_name(Some("sockB")).unwrap());
+
+    assert!(
+        stdout.contains("Backup of sessions for socket sockA was saved under"),
+        "successful sockets must still be reported when a later socket fails, stdout was: {stdout}"
+    );
+    assert!(
+        !stdout.contains("Backup of sessions for socket sockB was saved under"),
+        "failed socket must not be reported as saved, stdout was: {stdout}"
+    );
+    assert!(
+        stderr.contains("subprocess exited with status") && !stderr.contains("binary not found"),
+        "expected the failed socket error on stderr, stderr was: {stderr}"
+    );
+    assert_eq!(
+        list_directory_names(&sock_a_root).len(),
+        1,
+        "sockA backup should remain on disk after a later socket fails"
+    );
+    assert!(
+        !sock_b_root.exists() || list_directory_names(&sock_b_root).is_empty(),
+        "sockB should not leave a completed backup after a hard failure"
+    );
+
+    let log = env.read_fake_log();
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("-L sockA list-sessions")),
+        "expected sockA to be probed, log was:\n{log}"
+    );
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("-L sockB list-windows")),
+        "expected sockB to fail after the server probe, log was:\n{log}"
+    );
+}
+
+#[test]
 fn backup_writes_observability_log_file() {
     let env = TestEnv::new("observability-log");
     env.write_config(true);
@@ -666,11 +726,15 @@ impl TestEnv {
     }
 
     fn run_binary(&self, args: &[&str]) -> Output {
-        self.run_binary_inner(args, false)
+        self.run_binary_inner(args, false, None)
     }
 
     fn run_binary_with_no_server(&self, args: &[&str]) -> Output {
-        self.run_binary_inner(args, true)
+        self.run_binary_inner(args, true, None)
+    }
+
+    fn run_binary_failing_socket(&self, args: &[&str], socket_name: &str) -> Output {
+        self.run_binary_inner(args, false, Some(socket_name))
     }
 
     fn read_fake_log(&self) -> String {
@@ -681,7 +745,12 @@ impl TestEnv {
         }
     }
 
-    fn run_binary_inner(&self, args: &[&str], no_server: bool) -> Output {
+    fn run_binary_inner(
+        &self,
+        args: &[&str],
+        no_server: bool,
+        fail_socket: Option<&str>,
+    ) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_remux"));
         command.args(args);
         command.env("HOME", &self.home);
@@ -690,6 +759,9 @@ impl TestEnv {
         command.env("REMUX_FAKE_LOG", &self.fake_log);
         if no_server {
             command.env("REMUX_FAKE_NO_SERVER", "1");
+        }
+        if let Some(socket_name) = fail_socket {
+            command.env("REMUX_FAKE_FAIL_SOCKET", socket_name);
         }
         command
             .output()
@@ -716,7 +788,11 @@ if [ -n "${REMUX_FAKE_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$REMUX_FAKE_LOG"
 fi
 
+fail_socket=0
 if [ "${1:-}" = "-L" ]; then
+  if [ -n "${REMUX_FAKE_FAIL_SOCKET:-}" ] && [ "${2:-}" = "${REMUX_FAKE_FAIL_SOCKET}" ]; then
+    fail_socket=1
+  fi
   shift 2
 fi
 
@@ -728,6 +804,9 @@ case "${1:-}" in
     printf 'work:=:(120,40):=:0\n'
     ;;
   list-windows)
+    if [ "$fail_socket" = "1" ]; then
+      exit 1
+    fi
     target=''
     shift
     while [ "$#" -gt 0 ]; do

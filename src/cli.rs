@@ -316,34 +316,43 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
 }
 
 fn do_backup_all_sockets(config: &AppState) -> AppResult<()> {
-    match backup::capture_all_socket_backups(config) {
-        Ok(outcomes) => {
-            let mut created_count = 0usize;
-            for outcome in outcomes {
-                match outcome.outcome {
-                    backup::BackupOutcome::Created { path, .. } => {
-                        created_count += 1;
-                        println!(
-                            "Backup of sessions for socket {} was saved under {}",
-                            outcome.socket_name,
-                            path.display()
-                        );
-                    }
-                    backup::BackupOutcome::NoServer => {
-                        println!(
-                            "No tmux session found for socket {}, nothing to backup",
-                            outcome.socket_name
-                        );
-                    }
+    let results = backup::capture_all_socket_backups(config)?;
+    let mut created_count = 0usize;
+    let mut first_error = None;
+
+    for result in results {
+        match result {
+            backup::SocketBackupResult::Completed(outcome) => match outcome.outcome {
+                backup::BackupOutcome::Created { path, .. } => {
+                    created_count += 1;
+                    println!(
+                        "Backup of sessions for socket {} was saved under {}",
+                        outcome.socket_name,
+                        path.display()
+                    );
+                }
+                backup::BackupOutcome::NoServer => {
+                    println!(
+                        "No tmux session found for socket {}, nothing to backup",
+                        outcome.socket_name
+                    );
+                }
+            },
+            backup::SocketBackupResult::Failed { error, .. } => {
+                if first_error.is_none() {
+                    first_error = Some(error);
                 }
             }
-
-            if created_count == 0 {
-                println!("No tmux session found, nothing to backup");
-            }
-            Ok(())
         }
-        Err(error) => Err(error.into()),
+    }
+
+    if created_count == 0 && first_error.is_none() {
+        println!("No tmux session found, nothing to backup");
+    }
+
+    match first_error {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
     }
 }
 

@@ -56,6 +56,15 @@ pub struct SocketBackupOutcome {
     pub outcome: BackupOutcome,
 }
 
+#[derive(Debug)]
+pub enum SocketBackupResult {
+    Completed(SocketBackupOutcome),
+    Failed {
+        socket_name: String,
+        error: BackupError,
+    },
+}
+
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error(
@@ -107,20 +116,21 @@ pub fn capture_backup(
 
 pub fn capture_all_socket_backups(
     config: &AppState,
-) -> Result<Vec<SocketBackupOutcome>, BackupError> {
+) -> Result<Vec<SocketBackupResult>, BackupError> {
     let socket_names =
         discover_socket_names().map_err(|source| BackupError::SocketDiscovery { source })?;
 
     if socket_names.is_empty() {
-        return capture_backup(config, None).map(|outcome| {
-            vec![SocketBackupOutcome {
+        return match capture_backup(config, None) {
+            Ok(outcome) => Ok(vec![SocketBackupResult::Completed(SocketBackupOutcome {
                 socket_name: "default".to_string(),
                 outcome,
-            }]
-        });
+            })]),
+            Err(error) => Err(error),
+        };
     }
 
-    socket_names
+    Ok(socket_names
         .into_iter()
         .map(|socket_name| {
             let mut socket_config = config.clone();
@@ -131,12 +141,15 @@ pub fn capture_all_socket_backups(
             };
             socket_config
                 .set_execution_options(ExecutionOptions::with_socket_name(execution_socket_name));
-            capture_backup(&socket_config, None).map(|outcome| SocketBackupOutcome {
-                socket_name,
-                outcome,
-            })
+            match capture_backup(&socket_config, None) {
+                Ok(outcome) => SocketBackupResult::Completed(SocketBackupOutcome {
+                    socket_name,
+                    outcome,
+                }),
+                Err(error) => SocketBackupResult::Failed { socket_name, error },
+            }
         })
-        .collect()
+        .collect())
 }
 
 fn capture_backup_with_client(
