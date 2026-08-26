@@ -41,7 +41,8 @@ isolates data under `~/.remux/backup-sockets/<sanitized-socket-name>`.
 
 Operational logs are written to `~/.remux/remux.log`. By default remux keeps console logging off so
 CLI stdout/stderr stay stable; adjust the `[logging]` section in `~/.remux/config.toml` when you
-need more verbosity during debugging.
+need more verbosity during debugging. Console color is `auto` (ANSI when stderr is a TTY); set
+`color = "always"` or `color = "never"` to override. File logs are never colored.
 
 ## What remux stores
 

@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +9,7 @@ use tracing_subscriber::{
     prelude::*,
 };
 
-use crate::config::{AppState, LogLevel};
+use crate::config::{AppState, LogColor, LogLevel};
 
 pub fn run_with<T, F>(config: &AppState, action: &str, requested_backup: Option<&str>, run: F) -> T
 where
@@ -20,7 +20,7 @@ where
     match open_log_file(&log_path) {
         Ok(file) => {
             let console_layer = fmt::layer()
-                .with_ansi(false)
+                .with_ansi(console_ansi(config.config().logging.color))
                 .with_target(false)
                 .with_writer(std::io::stderr)
                 .with_filter(level_filter(config.config().logging.console));
@@ -43,7 +43,7 @@ where
         }
         Err(source) => {
             let console_layer = fmt::layer()
-                .with_ansi(false)
+                .with_ansi(console_ansi(config.config().logging.color))
                 .with_target(false)
                 .with_writer(std::io::stderr)
                 .with_filter(level_filter(config.config().logging.console));
@@ -84,6 +84,25 @@ fn root_span(
 
 fn open_log_file(path: &Path) -> Result<File, io::Error> {
     OpenOptions::new().create(true).append(true).open(path)
+}
+
+fn console_ansi(color: LogColor) -> bool {
+    match color {
+        LogColor::Always => true,
+        LogColor::Never => false,
+        LogColor::Auto => io::stderr().is_terminal(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LogColor, console_ansi};
+
+    #[test]
+    fn console_color_always_and_never_are_explicit() {
+        assert!(console_ansi(LogColor::Always));
+        assert!(!console_ansi(LogColor::Never));
+    }
 }
 
 fn level_filter(level: LogLevel) -> LevelFilter {

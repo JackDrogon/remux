@@ -1,6 +1,7 @@
 [logging]
 file = "info"
 console = "off"
+color = "auto"
 
 [capture]
 with_escape = true

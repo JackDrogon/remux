@@ -180,6 +180,7 @@ fn default_app_config_exposes_readable_sections() {
 
     assert_eq!(config.logging.file.as_str(), "info");
     assert_eq!(config.logging.console.as_str(), "off");
+    assert_eq!(config.logging.color.as_str(), "auto");
     assert_eq!(config.tmux.binary, "tmux");
     assert_eq!(config.backup.dir_name, "backup");
     assert_eq!(config.backup.socket_dir_name, "backup-sockets");

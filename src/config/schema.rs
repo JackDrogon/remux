@@ -27,6 +27,8 @@ impl AppConfig {
 pub struct LoggingConfig {
     pub file: LogLevel,
     pub console: LogLevel,
+    #[serde(default)]
+    pub color: LogColor,
 }
 
 impl Default for LoggingConfig {
@@ -34,6 +36,7 @@ impl Default for LoggingConfig {
         Self {
             file: LogLevel::Info,
             console: LogLevel::Off,
+            color: LogColor::Auto,
         }
     }
 }
@@ -45,6 +48,30 @@ pub enum LogLevel {
     Info,
     Debug,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogColor {
+    Auto,
+    Always,
+    Never,
+}
+
+impl Default for LogColor {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl LogColor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Never => "never",
+        }
+    }
 }
 
 impl LogLevel {
