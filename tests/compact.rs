@@ -70,7 +70,7 @@ fn compact_keeps_both_when_root_pid_differs() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Latest backups differ, nothing to compact\n"
+        "Latest backups 20240101_120500 and 20240101_120000 differ, nothing to compact\n"
     );
     assert!(
         older.exists(),
@@ -448,7 +448,7 @@ fn compact_keeps_schema_1_0_and_1_1_apart() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Latest backups differ, nothing to compact\n"
+        "Latest backups 20240101_120500 and 20240101_120000 differ, nothing to compact\n"
     );
     assert!(older.exists(), "schema 1.0 backup should remain");
     assert!(newer.exists(), "schema 1.1 backup should remain");

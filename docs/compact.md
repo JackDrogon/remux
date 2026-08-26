@@ -134,7 +134,7 @@ restore 重建 session / window / layout / pane / cwd / 文本，**不**启动 `
 | --- | --- | --- |
 | 不足两份 | 0 | `Need at least two backups to compact` |
 | 较旧的不是自动名 | 0 | `Previous backup {name} is not an automatic backup` |
-| 指纹不同 | 0 | `Latest backups differ, nothing to compact` |
+| 指纹不同 | 0 | `Latest backups {kept} and {previous} differ, nothing to compact` |
 | 已删除较旧自动备份 | 0 | `Removed duplicate backup {old} (same as {new})` |
 
 较旧的是自动备份并进入比较时：读 snapshot、pane 文件缺失/损坏、或删目录失败才非零。较旧的是手起的名：退出码 0，不验 pane。

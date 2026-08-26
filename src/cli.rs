@@ -393,8 +393,8 @@ fn do_compact(config: &AppState) -> AppResult<()> {
         compact::CompactOutcome::NamedPrevious { name } => {
             println!("Previous backup {name} is not an automatic backup");
         }
-        compact::CompactOutcome::Different => {
-            println!("Latest backups differ, nothing to compact");
+        compact::CompactOutcome::Different { kept, previous } => {
+            println!("Latest backups {kept} and {previous} differ, nothing to compact");
         }
         compact::CompactOutcome::Removed { deleted, kept } => {
             println!("Removed duplicate backup {deleted} (same as {kept})");
