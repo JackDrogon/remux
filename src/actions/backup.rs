@@ -17,6 +17,7 @@ use crate::backup_name::BackupNameError;
 use crate::config::{AppState, ExecutionOptions};
 use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
+use crate::process;
 use crate::storage::{SnapshotError, write_snapshot_dir};
 use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions, discover_socket_names};
 
@@ -325,13 +326,35 @@ fn load_panes(
 }
 
 fn parse_pane(session_name: &str, window_id: u32, line: &str) -> Result<Pane, BackupError> {
-    let fields = split_fields("list-panes", line, 4)?;
+    let fields = split_fields("list-panes", line, 6)?;
     let pane_id = parse_u32(fields[0], "list-panes", line)?;
     let mut pane = Pane::new(session_name, window_id, pane_id);
     pane.size = parse_size(fields[1], "list-panes", line)?;
     pane.path = fields[2].to_string();
     pane.active = parse_active(fields[3], "list-panes", line)?;
+    pane.command_tree = pane_command_tree_from_tmux(fields[4], fields[5], line)?;
     Ok(pane)
+}
+
+fn pane_command_tree_from_tmux(
+    current_command: &str,
+    pane_pid: &str,
+    line: &str,
+) -> Result<Option<crate::model::Process>, BackupError> {
+    let pane_pid = pane_pid.trim();
+    if pane_pid.is_empty() {
+        return Ok(None);
+    }
+
+    let pane_pid = parse_u32(pane_pid, "list-panes", line)?;
+    if pane_pid == 0 {
+        return Ok(None);
+    }
+
+    Ok(process::inspect_command_tree(
+        pane_pid,
+        current_command.trim(),
+    ))
 }
 
 fn split_fields<'a>(
@@ -446,7 +469,7 @@ mod tests {
             )]),
             BTreeMap::from([(
                 ("work".to_string(), 1usize),
-                vec!["0:=:(120,40):=:/tmp/work:=:1".to_string()],
+                vec!["0:=:(120,40):=:/tmp/work:=:1:=:zsh:=:1".to_string()],
             )]),
             BTreeMap::from([("work:1.0".to_string(), b"pane0\n".to_vec())]),
         );

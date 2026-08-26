@@ -4,8 +4,7 @@ pub const TMUX_BINARY: &str = "tmux";
 pub const OUTPUT_SEPARATOR: &str = ":=:";
 pub const LIST_SESSIONS_FORMAT: &str =
     "#S:=:(#{window_width},#{window_height}):=:#{session_attached}";
-pub const LIST_PANES_FORMAT: &str =
-    "#{pane_index}:=:(#{pane_width},#{pane_height}):=:#{pane_current_path}:=:#{pane_active}";
+pub const LIST_PANES_FORMAT: &str = "#{pane_index}:=:(#{pane_width},#{pane_height}):=:#{pane_current_path}:=:#{pane_active}:=:#{pane_current_command}:=:#{pane_pid}";
 pub const LIST_WINDOWS_FORMAT: &str =
     "#{window_index}:=:#{window_name}:=:#{window_active}:=:#{window_layout}";
 

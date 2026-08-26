@@ -21,7 +21,8 @@ use super::fs_ops;
 use super::snapshot_contract::{
     PaneContentMeta, PaneEncoding, SnapshotManifestFile, SnapshotPane, SnapshotSession,
     SnapshotSize, SnapshotSummaryFile, SnapshotWindow, build_loaded_snapshot, current_version,
-    ensure_supported_version, read_json_slice, summary_count, summary_to_tmux,
+    ensure_supported_version, read_json_slice, snapshot_from_process, summary_count,
+    summary_to_tmux,
 };
 
 pub const SUMMARY_FILE_NAME: &str = "summary.json";
@@ -250,6 +251,7 @@ fn build_manifest(
                     path: pane.path.clone(),
                     size: SnapshotSize::from_size(pane.size),
                     content_ref,
+                    command_tree: pane.command_tree.as_ref().map(snapshot_from_process),
                 });
             }
 

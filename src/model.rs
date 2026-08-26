@@ -106,6 +106,15 @@ impl Window {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Process {
+    pub name: String,
+    pub argv: Vec<String>,
+    pub pid: u32,
+    pub foreground: bool,
+    pub children: Vec<Process>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pane {
     pub pane_id: u32,
     pub size: Size,
@@ -113,6 +122,7 @@ pub struct Pane {
     pub active: bool,
     pub session_name: String,
     pub window_id: u32,
+    pub command_tree: Option<Process>,
 }
 
 impl Pane {
@@ -127,6 +137,7 @@ impl Pane {
             active: false,
             session_name: session_name.into(),
             window_id,
+            command_tree: None,
         }
     }
 

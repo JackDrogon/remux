@@ -6,6 +6,7 @@ pub mod error;
 pub(crate) mod hash;
 pub mod model;
 pub(crate) mod observability;
+pub(crate) mod process;
 pub mod storage;
 pub mod tmux;
 pub mod ui;

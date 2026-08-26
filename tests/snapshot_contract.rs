@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use remux::model::{Pane, Session, Size, Tmux, Window};
+use remux::model::{Pane, Process, Session, Size, Tmux, Window};
 use remux::storage::{self, SnapshotError};
 
 mod support;
@@ -173,6 +173,88 @@ fn read_rejects_manifest_with_missing_pane_table_entry() {
     assert!(matches!(error, SnapshotError::InvalidManifest { .. }));
 }
 
+#[test]
+fn write_and_read_preserves_command_tree() {
+    let temp = TempDir::new("pane-command");
+    let backup_dir = temp.path().join("backup_20240101_120000");
+    let (mut tmux, pane_contents) = support::single_window_tmux(
+        "backup_20240101_120000",
+        "work",
+        "2024-01-01 12:00:00",
+        &["/tmp/work"],
+    );
+    tmux.sessions[0].windows[0].panes[0].command_tree = Some(Process {
+        name: "zsh".to_string(),
+        argv: vec!["zsh".to_string()],
+        pid: 1000,
+        foreground: false,
+        children: vec![
+            Process {
+                name: "sleep".to_string(),
+                argv: vec!["sleep".to_string(), "999".to_string()],
+                pid: 1001,
+                foreground: false,
+                children: Vec::new(),
+            },
+            Process {
+                name: "vim".to_string(),
+                argv: vec!["vim".to_string(), "/tmp/notes.md".to_string()],
+                pid: 4242,
+                foreground: true,
+                children: Vec::new(),
+            },
+        ],
+    });
+
+    storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        .expect("snapshot directory should be written");
+    let loaded =
+        storage::read_snapshot_dir(&backup_dir).expect("snapshot with command tree should load");
+    let command_tree = loaded.tmux.sessions[0].windows[0].panes[0]
+        .command_tree
+        .as_ref()
+        .expect("command tree should survive the snapshot round trip");
+
+    assert_eq!(command_tree.pid, 1000);
+    assert_eq!(command_tree.name, "zsh");
+    assert!(!command_tree.foreground);
+    assert_eq!(
+        command_tree
+            .children
+            .iter()
+            .map(|child| child.pid)
+            .collect::<Vec<_>>(),
+        vec![1001, 4242]
+    );
+    assert!(!command_tree.children[0].foreground);
+    assert!(command_tree.children[1].foreground);
+    assert_eq!(
+        command_tree.children[1].argv,
+        vec!["vim".to_string(), "/tmp/notes.md".to_string()]
+    );
+
+    let manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(backup_dir.join("manifest.json"))
+            .expect("written manifest should be readable"),
+    )
+    .expect("written manifest should parse");
+    assert_pane_json_persists_only_command_tree(&manifest["sessions"][0]["windows"][0]["panes"][0]);
+}
+
+#[test]
+fn read_accepts_schema_1_0_snapshot_without_command_tree() {
+    let loaded = storage::read_snapshot_dir(&support::schema_1_0_snapshot_dir())
+        .expect("frozen schema 1.0 snapshot should still load");
+
+    assert_eq!(loaded.tmux.backup_id, "backup_20240101_120000");
+    assert!(
+        loaded.tmux.sessions[0].windows[0].panes[0]
+            .command_tree
+            .is_none(),
+        "schema 1.0 panes have no command_tree field and must load as None"
+    );
+}
+
 fn write_basic_snapshot(label: &str) -> TempDir {
     let temp = TempDir::new(label);
     let backup_dir = temp.path().join("backup_20240101_120000");
@@ -185,6 +267,40 @@ fn write_basic_snapshot(label: &str) -> TempDir {
     storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("snapshot directory should be written");
     temp
+}
+
+fn assert_pane_json_persists_only_command_tree(pane: &serde_json::Value) {
+    let object = pane
+        .as_object()
+        .expect("written pane should be a JSON object");
+    assert!(
+        !object.contains_key("current_command"),
+        "pane must not persist a duplicated current_command, keys were: {:?}",
+        object.keys().collect::<Vec<_>>()
+    );
+    let command_tree = object
+        .get("command_tree")
+        .expect("written pane should include command_tree");
+    assert_command_tree_json_fields(command_tree);
+}
+
+fn assert_command_tree_json_fields(value: &serde_json::Value) {
+    let object = value
+        .as_object()
+        .expect("command_tree process should be a JSON object");
+    let mut keys = object.keys().cloned().collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["argv", "children", "foreground", "name", "pid"],
+        "command_tree must persist exactly name, argv, pid, foreground, and children"
+    );
+    for child in object["children"]
+        .as_array()
+        .expect("command_tree children should be an array")
+    {
+        assert_command_tree_json_fields(child);
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

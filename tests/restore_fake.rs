@@ -6,10 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::actions::restore::restore_from_path_with_adapter;
 use remux::storage;
-use remux::tmux::TmuxCommand;
 
-use crate::support::single_window_tmux;
-use crate::support::tmux_fake::{FakeTmux, FakeTmuxOutput, FakeTmuxStep};
+use crate::support::{single_window_restore_fake, single_window_tmux};
 
 #[test]
 fn restore_flow_accepts_fake_tmux_client() {
@@ -21,82 +19,7 @@ fn restore_flow_accepts_fake_tmux_client() {
     storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
         .expect("snapshot fixture should be written");
 
-    let fake = FakeTmux::new([
-        FakeTmuxStep::ok(TmuxCommand::ListSessions, FakeTmuxOutput::Bool(true)),
-        FakeTmuxStep::ok(
-            TmuxCommand::HasSession {
-                session_name: "work".to_string(),
-            },
-            FakeTmuxOutput::Bool(false),
-        ),
-        FakeTmuxStep::ok(TmuxCommand::ListSessions, FakeTmuxOutput::Bool(true)),
-        FakeTmuxStep::ok(
-            TmuxCommand::ShowOption {
-                option: "base-index".to_string(),
-            },
-            FakeTmuxOutput::Text("1".to_string()),
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::CreateSession {
-                session_name: "work".to_string(),
-                width: 120,
-                height: 40,
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::RenameWindow {
-                session_name: "work".to_string(),
-                window_id: 1,
-                name: "editor".to_string(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::SelectWindow {
-                session_name: "work".to_string(),
-                window_id: 1,
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::ClearPane {
-                pane_id: "work:1.0".to_string(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::SendKeys {
-                target: "work:1.0".to_string(),
-                keys: "builtin cd \"/tmp/work\"\nclear\n".to_string(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::ClearPane {
-                pane_id: "work:1.0".to_string(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::LoadContent {
-                pane_id: "work:1.0".to_string(),
-                filename: backup_dir
-                    .join("panes/work:1.0.txt")
-                    .to_string_lossy()
-                    .into_owned(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-        FakeTmuxStep::ok(
-            TmuxCommand::SelectLayout {
-                session_name: "work".to_string(),
-                window_id: 1,
-                layout: "1900,120x40,0,0,0".to_string(),
-            },
-            FakeTmuxOutput::Unit,
-        ),
-    ]);
+    let fake = single_window_restore_fake(&backup_dir);
 
     restore_from_path_with_adapter(&sandbox.backup_root, &fake, backup_name)
         .expect("restore should succeed with fake tmux client");

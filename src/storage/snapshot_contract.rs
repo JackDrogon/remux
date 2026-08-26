@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Pane, Session, Size, Tmux, Window};
+use crate::model::{Pane, Process, Session, Size, Tmux, Window};
 
 use super::snapshot::{PaneAsset, SUMMARY_FILE_NAME, SnapshotError};
 
 const SNAPSHOT_SCHEMA_MAJOR: u16 = 1;
-const SNAPSHOT_SCHEMA_MINOR: u16 = 0;
+const SNAPSHOT_SCHEMA_MINOR: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SchemaVersion {
@@ -62,6 +62,19 @@ pub(crate) struct SnapshotPane {
     pub(crate) path: String,
     pub(crate) size: SnapshotSize,
     pub(crate) content_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) command_tree: Option<SnapshotProcess>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct SnapshotProcess {
+    pub(crate) name: String,
+    pub(crate) argv: Vec<String>,
+    pub(crate) pid: u32,
+    #[serde(default)]
+    pub(crate) foreground: bool,
+    #[serde(default)]
+    pub(crate) children: Vec<SnapshotProcess>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +194,7 @@ pub(crate) fn build_loaded_snapshot(
                 model_pane.active = pane.active;
                 model_pane.path = pane.path;
                 model_pane.size = pane.size.into_size();
+                model_pane.command_tree = pane.command_tree.map(process_from_snapshot);
                 model_window.panes.push(model_pane);
             }
 
@@ -191,6 +205,30 @@ pub(crate) fn build_loaded_snapshot(
     }
 
     Ok((tmux, pane_assets))
+}
+
+fn process_from_snapshot(process: SnapshotProcess) -> Process {
+    Process {
+        name: process.name,
+        argv: process.argv,
+        pid: process.pid,
+        foreground: process.foreground,
+        children: process
+            .children
+            .into_iter()
+            .map(process_from_snapshot)
+            .collect(),
+    }
+}
+
+pub(crate) fn snapshot_from_process(process: &Process) -> SnapshotProcess {
+    SnapshotProcess {
+        name: process.name.clone(),
+        argv: process.argv.clone(),
+        pid: process.pid,
+        foreground: process.foreground,
+        children: process.children.iter().map(snapshot_from_process).collect(),
+    }
 }
 
 impl SnapshotSize {

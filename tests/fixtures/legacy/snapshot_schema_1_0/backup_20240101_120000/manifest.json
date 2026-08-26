@@ -1,0 +1,46 @@
+{
+  "schema_version": {
+    "major": 1,
+    "minor": 0
+  },
+  "backup_id": "backup_20240101_120000",
+  "created_at": "2024-01-01 12:00:00",
+  "sessions": [
+    {
+      "name": "work",
+      "attached": false,
+      "size": {
+        "width": 120,
+        "height": 40
+      },
+      "windows": [
+        {
+          "id": 1,
+          "name": "editor",
+          "active": true,
+          "layout": "1900,120x40,0,0,0",
+          "panes": [
+            {
+              "pane_id": 0,
+              "active": true,
+              "path": "/tmp/work",
+              "size": {
+                "width": 120,
+                "height": 40
+              },
+              "content_ref": "work:1.0"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "pane_table": {
+    "work:1.0": {
+      "relative_path": "panes/work:1.0.txt",
+      "encoding": "utf8",
+      "byte_len": 6,
+      "sha256": "4c2f902761317db7e92ddd5804a81325ca523866582466dc62ff86263ee69d9b"
+    }
+  }
+}

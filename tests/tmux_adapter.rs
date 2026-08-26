@@ -70,7 +70,7 @@ fn rendered_command_templates_match_tmux_shapes() {
             "tmux",
             "list-panes",
             "-tdemo:2",
-            "-F#{pane_index}:=:(#{pane_width},#{pane_height}):=:#{pane_current_path}:=:#{pane_active}"
+            "-F#{pane_index}:=:(#{pane_width},#{pane_height}):=:#{pane_current_path}:=:#{pane_active}:=:#{pane_current_command}:=:#{pane_pid}"
         ]
     );
     assert_eq!(
