@@ -33,6 +33,11 @@ default:
 build:
     cargo build
 
+# Build the binary in release mode
+[group('build')]
+build-release:
+    cargo build --release
+
 # Build and run the application
 [group('build')]
 run *args:
