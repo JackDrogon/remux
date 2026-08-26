@@ -1,5 +1,6 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -296,6 +297,32 @@ fn unnamed_default_backup_captures_all_discovered_sockets() {
         log.lines()
             .any(|line| line.starts_with("-L sockA list-sessions")),
         "expected sockA socket probe, log was:\n{log}"
+    );
+}
+
+#[test]
+fn unnamed_default_backup_ignores_regular_files_in_socket_dir() {
+    let env = TestEnv::new("ignore-regular-files");
+    env.write_config(false);
+    env.install_fake_tmux();
+    env.create_tmux_socket("sockA");
+    env.create_regular_file_in_socket_dir("not-a-socket");
+
+    let output = env.run_binary(&["backup"]);
+    assert_success(
+        &output,
+        "unnamed backup should ignore regular files in the tmux socket dir",
+    );
+
+    let log = env.read_fake_log();
+    assert!(
+        log.lines()
+            .any(|line| line.starts_with("-L sockA list-sessions")),
+        "expected sockA socket probe, log was:\n{log}"
+    );
+    assert!(
+        !log.lines().any(|line| line.contains("-L not-a-socket")),
+        "regular files in the tmux socket dir must not be treated as sockets, log was:\n{log}"
     );
 }
 
@@ -621,10 +648,21 @@ impl TestEnv {
             .expect("should make fake tmux script executable");
     }
 
+    fn tmux_socket_dir(&self) -> PathBuf {
+        self.root.join(format!("tmux-{}", current_uid()))
+    }
+
     fn create_tmux_socket(&self, socket_name: &str) {
-        let socket_dir = self.root.join(format!("tmux-{}", current_uid()));
+        let socket_dir = self.tmux_socket_dir();
         fs::create_dir_all(&socket_dir).expect("tmux socket directory should be created");
-        fs::write(socket_dir.join(socket_name), "").expect("fake tmux socket should be created");
+        UnixListener::bind(socket_dir.join(socket_name))
+            .expect("fake tmux socket should be created");
+    }
+
+    fn create_regular_file_in_socket_dir(&self, name: &str) {
+        let socket_dir = self.tmux_socket_dir();
+        fs::create_dir_all(&socket_dir).expect("tmux socket directory should be created");
+        fs::write(socket_dir.join(name), "").expect("decoy socket-dir file should be created");
     }
 
     fn run_binary(&self, args: &[&str]) -> Output {

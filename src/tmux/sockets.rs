@@ -20,7 +20,7 @@ pub fn discover_socket_names() -> Result<Vec<String>, io::Error> {
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
             let file_type = entry.file_type().ok()?;
-            if !file_type.is_file() && !file_type.is_socket() {
+            if !file_type.is_socket() {
                 return None;
             }
             entry.file_name().into_string().ok()
