@@ -15,6 +15,8 @@ pub enum AppError {
     #[error(transparent)]
     Restore(#[from] crate::actions::restore::RestoreError),
     #[error(transparent)]
+    Compact(#[from] crate::actions::compact::CompactError),
+    #[error(transparent)]
     Catalog(#[from] crate::storage::CatalogError),
     #[error(transparent)]
     Interactive(#[from] crate::actions::interactive::InteractiveError),

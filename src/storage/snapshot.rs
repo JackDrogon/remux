@@ -67,6 +67,14 @@ pub enum SnapshotError {
     DuplicateContentRef { content_ref: String },
     #[error("invalid relative snapshot path: {relative_path}")]
     InvalidRelativePath { relative_path: String },
+    #[error("missing pane content for {pane_id} at {}", path.display())]
+    MissingPaneContent { pane_id: String, path: PathBuf },
+    #[error("invalid pane content for {pane_id} at {}: {detail}", path.display())]
+    InvalidPaneContent {
+        pane_id: String,
+        path: PathBuf,
+        detail: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +120,56 @@ pub fn read_snapshot_summary_dir(snapshot_dir: &Path) -> Result<Tmux, SnapshotEr
     let summary_path = snapshot_dir.join(SUMMARY_FILE_NAME);
     let summary = read_summary_file(&summary_path)?;
     Ok(summary_to_tmux(&summary))
+}
+
+pub fn validate_pane_asset(
+    snapshot_dir: &Path,
+    pane_id: &str,
+    asset: &PaneAsset,
+) -> Result<PathBuf, SnapshotError> {
+    let content_path = snapshot_dir.join(&asset.relative_path);
+    if !content_path.is_file() {
+        return Err(SnapshotError::MissingPaneContent {
+            pane_id: pane_id.to_string(),
+            path: content_path,
+        });
+    }
+
+    let bytes = read_file(&content_path)?;
+    if bytes.len() as u64 != asset.byte_len {
+        return Err(SnapshotError::InvalidPaneContent {
+            pane_id: pane_id.to_string(),
+            path: content_path,
+            detail: format!("expected {} bytes, found {}", asset.byte_len, bytes.len()),
+        });
+    }
+
+    let actual_hash = sha256_hex(&bytes);
+    if actual_hash != asset.sha256 {
+        return Err(SnapshotError::InvalidPaneContent {
+            pane_id: pane_id.to_string(),
+            path: content_path,
+            detail: format!("expected sha256 {}, found {actual_hash}", asset.sha256),
+        });
+    }
+
+    Ok(content_path)
+}
+
+pub fn validate_pane_assets(
+    snapshot_dir: &Path,
+    pane_assets: &BTreeMap<String, PaneAsset>,
+) -> Result<(), SnapshotError> {
+    for (pane_id, asset) in pane_assets {
+        validate_pane_asset(snapshot_dir, pane_id, asset)?;
+    }
+    Ok(())
+}
+
+pub fn read_schema_version(snapshot_dir: &Path) -> Result<(u16, u16), SnapshotError> {
+    let summary_path = snapshot_dir.join(SUMMARY_FILE_NAME);
+    let summary = read_summary_file(&summary_path)?;
+    Ok((summary.schema_version.major, summary.schema_version.minor))
 }
 
 pub fn read_snapshot_dir(snapshot_dir: &Path) -> Result<LoadedSnapshot, SnapshotError> {

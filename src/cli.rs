@@ -7,7 +7,7 @@ use clap::{
 
 use crate::{
     BINARY_NAME,
-    actions::{backup, interactive, restore},
+    actions::{backup, compact, interactive, restore},
     config::{AppState, ExecutionOptions},
     error::{AppError, AppResult},
     observability, ui,
@@ -21,6 +21,7 @@ const CLI_AFTER_HELP: &str = concat!(
     "  remux list\n",
     "  remux restore\n",
     "  remux restore --interactive\n",
+    "  remux compact\n",
     "  remux -L sockA backup backup_20240101_120000\n\n",
     "Files:\n",
     "  config file: $HOME/.remux/config.toml"
@@ -33,6 +34,7 @@ pub enum Action {
     Backup,
     Restore,
     InteractiveRestore,
+    Compact,
 }
 
 impl Action {
@@ -43,6 +45,7 @@ impl Action {
             Self::Backup => "backup",
             Self::Restore => "restore",
             Self::InteractiveRestore => "interactive-restore",
+            Self::Compact => "compact",
         }
     }
 }
@@ -132,6 +135,8 @@ enum Commands {
         #[arg(value_name = "name", help = "Delete the named backup directly")]
         name: Option<String>,
     },
+    #[command(about = "Remove the previous backup when it matches the latest")]
+    Compact,
     #[command(about = "Restore tmux sessions from backup")]
     Restore {
         #[arg(value_name = "name", help = "Restore the named backup")]
@@ -245,6 +250,7 @@ impl Cli {
                 name,
                 interactive: false,
             } => (Action::Restore, name),
+            Commands::Compact => (Action::Compact, None),
         };
 
         CliArgs {
@@ -277,6 +283,7 @@ fn dispatch(args: CliArgs, config: &AppState) -> AppResult<()> {
         Action::Backup => do_backup(config, args.action_arg.as_deref()),
         Action::Restore => do_restore(config, args.action_arg.as_deref()),
         Action::InteractiveRestore => interactive_restore(config),
+        Action::Compact => do_compact(config),
     }
 }
 
@@ -376,6 +383,24 @@ fn print_completed_socket_backup(outcome: &backup::SocketBackupOutcome) -> bool 
             false
         }
     }
+}
+
+fn do_compact(config: &AppState) -> AppResult<()> {
+    match compact::compact_latest_pair(config)? {
+        compact::CompactOutcome::NeedMoreBackups => {
+            println!("Need at least two backups to compact");
+        }
+        compact::CompactOutcome::NamedPrevious { name } => {
+            println!("Previous backup {name} is not an automatic backup");
+        }
+        compact::CompactOutcome::Different => {
+            println!("Latest backups differ, nothing to compact");
+        }
+        compact::CompactOutcome::Removed { deleted, kept } => {
+            println!("Removed duplicate backup {deleted} (same as {kept})");
+        }
+    }
+    Ok(())
 }
 
 fn do_restore(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {

@@ -16,9 +16,10 @@ use thiserror::Error;
 use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::error::SubprocessError;
-use crate::hash::sha256_hex;
 use crate::model::{Pane, Session, Tmux, Window};
-use crate::storage::{LoadedSnapshot, PaneAsset, SnapshotError, read_snapshot_dir};
+use crate::storage::{
+    LoadedSnapshot, PaneAsset, SnapshotError, read_snapshot_dir, validate_pane_asset,
+};
 use crate::tmux::{TmuxClient, TmuxRuntimeOptions};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
@@ -450,45 +451,30 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
             .ok_or_else(|| RestoreError::MissingPaneAsset {
                 pane_id: pane_id.to_string(),
             })?;
-        let content_path = backup_dir.join(&asset.relative_path);
-
-        if !content_path.is_file() {
-            return Err(RestoreError::MissingPaneContent {
-                pane_id: pane_id.to_string(),
-                path: content_path,
-            });
-        }
-
-        let bytes = fs::read(&content_path).map_err(|source| RestoreError::BackupMetadata {
-            path: content_path.clone(),
-            source,
-        })?;
-        if bytes.len() as u64 != asset.byte_len {
-            return Err(invalid_pane_content(
-                pane_id,
-                content_path,
-                format!("expected {} bytes, found {}", asset.byte_len, bytes.len()),
-            ));
-        }
-
-        let actual_hash = sha256_hex(&bytes);
-        if actual_hash != asset.sha256 {
-            return Err(invalid_pane_content(
-                pane_id,
-                content_path,
-                format!("expected sha256 {}, found {}", asset.sha256, actual_hash),
-            ));
-        }
-
-        Ok(content_path)
+        validate_pane_asset(backup_dir, pane_id, asset)
+            .map_err(|error| pane_payload_error(backup_dir, error))
     }
 }
 
-fn invalid_pane_content(pane_id: &str, path: PathBuf, detail: impl Into<String>) -> RestoreError {
-    RestoreError::InvalidPaneContent {
-        pane_id: pane_id.to_string(),
-        path,
-        detail: detail.into(),
+fn pane_payload_error(backup_dir: &Path, error: SnapshotError) -> RestoreError {
+    match error {
+        SnapshotError::MissingPaneContent { pane_id, path } => {
+            RestoreError::MissingPaneContent { pane_id, path }
+        }
+        SnapshotError::InvalidPaneContent {
+            pane_id,
+            path,
+            detail,
+        } => RestoreError::InvalidPaneContent {
+            pane_id,
+            path,
+            detail,
+        },
+        SnapshotError::Io { path, source } => RestoreError::BackupMetadata { path, source },
+        source => RestoreError::SnapshotLoad {
+            path: backup_dir.to_path_buf(),
+            source,
+        },
     }
 }
 

@@ -41,6 +41,13 @@ pub fn normalize_backup_name(raw: &str) -> Result<String, BackupNameError> {
     Ok(normalized.to_string())
 }
 
+const AUTOMATIC_BACKUP_ID_FORMAT: &str = "%Y%m%d_%H%M%S";
+
+pub fn is_automatic_backup_id(name: &str) -> bool {
+    name.len() == 15
+        && chrono::NaiveDateTime::parse_from_str(name, AUTOMATIC_BACKUP_ID_FORMAT).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::normalize_backup_name;
@@ -56,6 +63,14 @@ mod tests {
             normalize_backup_name("team backup").expect("internal spaces should remain intact"),
             "team backup"
         );
+    }
+
+    #[test]
+    fn recognizes_automatic_timestamp_backup_ids() {
+        assert!(super::is_automatic_backup_id("20240101_120000"));
+        assert!(!super::is_automatic_backup_id("backup_20240101_120000"));
+        assert!(!super::is_automatic_backup_id("20241301_120000"));
+        assert!(!super::is_automatic_backup_id("sprint_demo"));
     }
 
     #[test]

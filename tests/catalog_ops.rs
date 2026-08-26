@@ -250,6 +250,40 @@ fn named_lookup_reads_only_requested_backup() {
     assert_eq!(loaded.snapshot.sessions[0].name, "ops");
 }
 
+#[test]
+fn catalog_listing_skips_dot_prefixed_entries_even_if_metadata_fails() {
+    let temp_home = TempHome::new("skip-dot-entries");
+    write_backup(
+        temp_home.path(),
+        None,
+        "keep_me",
+        "work",
+        "2024-01-01 12:00:00",
+        &["/tmp/work"],
+    );
+
+    let config = AppState::load_from_home(temp_home.path())
+        .expect("runtime config should load from temp HOME");
+    let root = config.active_backup_path();
+    fs::create_dir_all(root.join(".tmp-write")).expect("dot temp dir should be created");
+    std::os::unix::fs::symlink("/no/such/remux-dot-target", root.join(".dangling"))
+        .expect("dangling dot symlink should be created");
+
+    let full_ids = storage::list_backups(&config)
+        .expect("full listing must ignore dot-prefixed entries")
+        .into_iter()
+        .map(|entry| entry.backup_id)
+        .collect::<Vec<_>>();
+    assert_eq!(full_ids, vec!["keep_me"]);
+
+    let summary_ids = storage::list_backups_for_listing(&config)
+        .expect("summary listing must ignore dot-prefixed entries")
+        .into_iter()
+        .map(|entry| entry.backup_id)
+        .collect::<Vec<_>>();
+    assert_eq!(summary_ids, vec!["keep_me"]);
+}
+
 fn write_backup(
     home_dir: &Path,
     socket_name: Option<&str>,

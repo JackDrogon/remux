@@ -23,6 +23,8 @@ fn help_shows_branding_commands_and_footer() {
         "Inspect backups",
         "delete",
         "Delete backups",
+        "compact",
+        "Remove the previous backup when it matches the latest",
         "restore",
         "Restore tmux sessions from backup",
         "Options:",

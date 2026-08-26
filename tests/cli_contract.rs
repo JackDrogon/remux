@@ -48,6 +48,21 @@ fn subcommands_map_cleanly_to_internal_actions() {
         .expect("multiple tmux verbose flags should parse globally");
     assert_eq!(verbose_twice.verbose_log_level, 2);
     assert_eq!(verbose_twice.action, Action::Backup);
+
+    let compact =
+        parse_cli_args(["remux", "-L", "sockA", "compact"]).expect("compact command should parse");
+    assert_eq!(compact.action, Action::Compact);
+    assert_eq!(compact.socket_name.as_deref(), Some("sockA"));
+    assert_eq!(compact.action_arg, None);
+
+    let backup_compact = parse_cli_args(["remux", "backup", "--compact"]).unwrap_err();
+    assert_eq!(backup_compact.kind(), ErrorKind::UnknownArgument);
+    assert!(
+        backup_compact
+            .to_string()
+            .contains("unexpected argument '--compact' found"),
+        "backup must not grow a --compact flag, got: {backup_compact}"
+    );
 }
 
 #[test]

@@ -106,6 +106,33 @@ pub fn latest_backup(config: &AppState) -> Result<BackupEntry, CatalogError> {
         .ok_or(CatalogError::NoBackups { root })
 }
 
+pub fn load_newest_backups(
+    config: &AppState,
+    limit: usize,
+) -> Result<Vec<BackupEntry>, CatalogError> {
+    let root = config.active_backup_path();
+    tracing::debug!(
+        root = %root.display(),
+        limit,
+        "loading newest backup directories"
+    );
+    let mut directories = list_backup_directories(&root)?;
+    sort_backup_directories(&mut directories);
+    directories.truncate(limit);
+
+    directories
+        .into_iter()
+        .map(|directory| {
+            read_backup_entry(
+                directory.path,
+                directory.backup_id,
+                directory.metadata,
+                SnapshotLoadMode::Full,
+            )
+        })
+        .collect()
+}
+
 pub fn resolve_restore_target(
     config: &AppState,
     requested_name: Option<&str>,
@@ -147,6 +174,51 @@ fn load_backups(
     load_mode: SnapshotLoadMode,
 ) -> Result<Vec<BackupEntry>, CatalogError> {
     list_backups_in_root(&config.active_backup_path(), sort_order, load_mode)
+}
+
+struct BackupDirectory {
+    path: PathBuf,
+    backup_id: String,
+    metadata: std::fs::Metadata,
+}
+
+fn list_backup_directories(root: &Path) -> Result<Vec<BackupDirectory>, CatalogError> {
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let entries = fs_ops::read_dir(root, |path, source| CatalogError::ReadCatalog {
+        path,
+        source,
+    })?;
+
+    let mut directories = Vec::new();
+    for entry in entries {
+        let entry = fs_ops::dir_entry(entry, root, |path, source| CatalogError::ReadCatalog {
+            path,
+            source,
+        })?;
+        if let Some(directory) = listed_backup_directory(entry)? {
+            directories.push(directory);
+        }
+    }
+    Ok(directories)
+}
+
+fn sort_backup_directories(directories: &mut [BackupDirectory]) {
+    directories.sort_by(|left, right| {
+        directory_modified_at(&right.metadata)
+            .cmp(&directory_modified_at(&left.metadata))
+            .then_with(|| right.backup_id.cmp(&left.backup_id))
+    });
+}
+
+fn directory_modified_at(metadata: &std::fs::Metadata) -> Duration {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .unwrap_or_default()
 }
 
 fn list_backups_in_root(
@@ -226,6 +298,26 @@ fn read_catalog_entry(
     entry: std::fs::DirEntry,
     load_mode: SnapshotLoadMode,
 ) -> Result<Option<BackupEntry>, CatalogError> {
+    let Some(directory) = listed_backup_directory(entry)? else {
+        return Ok(None);
+    };
+    read_backup_entry(
+        directory.path,
+        directory.backup_id,
+        directory.metadata,
+        load_mode,
+    )
+    .map(Some)
+}
+
+fn listed_backup_directory(
+    entry: std::fs::DirEntry,
+) -> Result<Option<BackupDirectory>, CatalogError> {
+    let backup_id = entry.file_name().to_string_lossy().into_owned();
+    if !is_listed_backup_name(&backup_id) {
+        return Ok(None);
+    }
+
     let path = entry.path();
     let metadata = entry
         .metadata()
@@ -237,8 +329,15 @@ fn read_catalog_entry(
         return Ok(None);
     }
 
-    let backup_id = entry.file_name().to_string_lossy().into_owned();
-    read_backup_entry(path, backup_id, metadata, load_mode).map(Some)
+    Ok(Some(BackupDirectory {
+        path,
+        backup_id,
+        metadata,
+    }))
+}
+
+fn is_listed_backup_name(backup_id: &str) -> bool {
+    !backup_id.starts_with('.')
 }
 
 fn sort_backups(backups: &mut [BackupEntry], sort_order: BackupSortOrder) {
