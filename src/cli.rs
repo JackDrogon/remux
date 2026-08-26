@@ -11,7 +11,7 @@ use crate::{
     config::{AppState, ExecutionOptions},
     error::{AppError, AppResult},
     observability, ui,
-    vlog::{self, VLogLevel},
+    verbose_log::{self, VerboseLogLevel},
 };
 
 const CLI_AFTER_HELP: &str = concat!(
@@ -50,7 +50,7 @@ impl Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliArgs {
     pub socket_name: Option<String>,
-    pub vlog_level: u8,
+    pub verbose_log_level: u8,
     pub action: Action,
     pub action_arg: Option<String>,
 }
@@ -109,7 +109,7 @@ struct Cli {
         action = ArgAction::Count,
         help = "Increase tmux command verbosity"
     )]
-    vlog_level: u8,
+    verbose_log_level: u8,
 
     #[command(subcommand)]
     command: Commands,
@@ -181,8 +181,8 @@ where
     };
 
     let mut config = AppState::load()?;
-    let vlog_level = VLogLevel::from_flag_count(parsed.vlog_level);
-    vlog::init(vlog_level);
+    let verbose_log_level = VerboseLogLevel::from_flag_count(parsed.verbose_log_level);
+    verbose_log::init(verbose_log_level);
     config.set_execution_options(ExecutionOptions::with_socket_name(
         parsed.socket_name.as_deref(),
     ));
@@ -198,7 +198,7 @@ where
                 action = action.as_str(),
                 requested_backup = requested_backup.as_deref().unwrap_or("-"),
                 socket_name = config.socket_name().unwrap_or("default"),
-                vlog_level = ?vlog_level,
+                verbose_log_level = ?verbose_log_level,
                 "dispatching cli action"
             );
             let result = dispatch(parsed, &config);
@@ -249,7 +249,7 @@ impl Cli {
 
         CliArgs {
             socket_name: self.socket_name,
-            vlog_level: self.vlog_level,
+            verbose_log_level: self.verbose_log_level,
             action,
             action_arg,
         }
@@ -315,44 +315,66 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
     }
 }
 
+/// Print every socket that already finished, then fail on the first hard error.
+///
+/// Later sockets can fail after earlier ones have written snapshots. Those
+/// successes must stay visible on stdout so a nonzero exit is not mistaken for
+/// "nothing was saved".
 fn do_backup_all_sockets(config: &AppState) -> AppResult<()> {
     let results = backup::capture_all_socket_backups(config)?;
-    let mut created_count = 0usize;
-    let mut first_error = None;
+    let mut created_backup_count = 0usize;
+    let mut first_socket_backup_error = None;
 
     for result in results {
-        match result {
-            backup::SocketBackupResult::Completed(outcome) => match outcome.outcome {
-                backup::BackupOutcome::Created { path, .. } => {
-                    created_count += 1;
-                    println!(
-                        "Backup of sessions for socket {} was saved under {}",
-                        outcome.socket_name,
-                        path.display()
-                    );
-                }
-                backup::BackupOutcome::NoServer => {
-                    println!(
-                        "No tmux session found for socket {}, nothing to backup",
-                        outcome.socket_name
-                    );
-                }
-            },
-            backup::SocketBackupResult::Failed { error, .. } => {
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
-            }
-        }
+        record_socket_backup_result(
+            result,
+            &mut created_backup_count,
+            &mut first_socket_backup_error,
+        );
     }
 
-    if created_count == 0 && first_error.is_none() {
+    if created_backup_count == 0 && first_socket_backup_error.is_none() {
         println!("No tmux session found, nothing to backup");
     }
 
-    match first_error {
-        Some(error) => Err(error.into()),
-        None => Ok(()),
+    first_socket_backup_error.map_or(Ok(()), |error| Err(error.into()))
+}
+
+fn record_socket_backup_result(
+    result: backup::SocketBackupResult,
+    created_backup_count: &mut usize,
+    first_socket_backup_error: &mut Option<backup::BackupError>,
+) {
+    match result {
+        backup::SocketBackupResult::Completed(outcome) => {
+            if print_completed_socket_backup(&outcome) {
+                *created_backup_count += 1;
+            }
+        }
+        backup::SocketBackupResult::Failed { error, .. } => {
+            first_socket_backup_error.get_or_insert(error);
+        }
+    }
+}
+
+/// Returns whether this socket produced a new backup directory.
+fn print_completed_socket_backup(outcome: &backup::SocketBackupOutcome) -> bool {
+    match &outcome.outcome {
+        backup::BackupOutcome::Created { path, .. } => {
+            println!(
+                "Backup of sessions for socket {} was saved under {}",
+                outcome.socket_name,
+                path.display()
+            );
+            true
+        }
+        backup::BackupOutcome::NoServer => {
+            println!(
+                "No tmux session found for socket {}, nothing to backup",
+                outcome.socket_name
+            );
+            false
+        }
     }
 }
 

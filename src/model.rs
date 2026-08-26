@@ -29,18 +29,18 @@ impl From<(u32, u32)> for Size {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tmux {
-    pub tid: String,
+    pub backup_id: String,
     pub sessions: Vec<Session>,
     pub create_time: String,
 }
 
 impl Tmux {
-    pub fn new<T>(tid: T) -> Self
+    pub fn new<T>(backup_id: T) -> Self
     where
         T: Into<String>,
     {
         Self {
-            tid: tid.into(),
+            backup_id: backup_id.into(),
             sessions: Vec::new(),
             create_time: String::new(),
         }
@@ -70,32 +70,32 @@ impl Session {
 
     pub fn windows_in_reverse(&self) -> Vec<&Window> {
         let mut windows = self.windows.iter().collect::<Vec<_>>();
-        windows.sort_by_key(|window| Reverse(window.win_id));
+        windows.sort_by_key(|window| Reverse(window.window_id));
         windows
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
-    pub win_id: u32,
+    pub window_id: u32,
     pub name: String,
     pub panes: Vec<Pane>,
     pub active: bool,
-    pub sess_name: String,
+    pub session_name: String,
     pub layout: String,
 }
 
 impl Window {
-    pub fn new<T>(sess_name: T, win_id: u32) -> Self
+    pub fn new<T>(session_name: T, window_id: u32) -> Self
     where
         T: Into<String>,
     {
         Self {
-            win_id,
-            name: format!("win{win_id}"),
+            window_id,
+            name: format!("win{window_id}"),
             panes: Vec::new(),
             active: false,
-            sess_name: sess_name.into(),
+            session_name: session_name.into(),
             layout: String::new(),
         }
     }
@@ -111,12 +111,12 @@ pub struct Pane {
     pub size: Size,
     pub path: String,
     pub active: bool,
-    pub sess_name: String,
-    pub win_id: u32,
+    pub session_name: String,
+    pub window_id: u32,
 }
 
 impl Pane {
-    pub fn new<T>(sess_name: T, win_id: u32, pane_id: u32) -> Self
+    pub fn new<T>(session_name: T, window_id: u32, pane_id: u32) -> Self
     where
         T: Into<String>,
     {
@@ -125,12 +125,12 @@ impl Pane {
             size: Size::default(),
             path: "~".to_string(),
             active: false,
-            sess_name: sess_name.into(),
-            win_id,
+            session_name: session_name.into(),
+            window_id,
         }
     }
 
-    pub fn idstr(&self) -> String {
-        format!("{}:{}.{}", self.sess_name, self.win_id, self.pane_id)
+    pub fn pane_target(&self) -> String {
+        format!("{}:{}.{}", self.session_name, self.window_id, self.pane_id)
     }
 }

@@ -3,14 +3,14 @@ use std::io::{self, Write};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub enum VLogLevel {
+pub enum VerboseLogLevel {
     #[default]
     Off = 0,
     Debug1 = 1,
     Debug2 = 2,
 }
 
-impl VLogLevel {
+impl VerboseLogLevel {
     pub fn from_flag_count(flag_count: u8) -> Self {
         match flag_count {
             0 => Self::Off,
@@ -32,19 +32,19 @@ impl VLogLevel {
     }
 }
 
-pub fn init(level: VLogLevel) {
+pub fn init(level: VerboseLogLevel) {
     global_level().store(level.as_u8(), Ordering::Relaxed);
 }
 
-fn enabled(level: VLogLevel) -> bool {
-    if level == VLogLevel::Off {
+fn enabled(level: VerboseLogLevel) -> bool {
+    if level == VerboseLogLevel::Off {
         return false;
     }
 
-    level <= VLogLevel::from_u8(global_level().load(Ordering::Relaxed))
+    level <= VerboseLogLevel::from_u8(global_level().load(Ordering::Relaxed))
 }
 
-pub fn log(level: VLogLevel, args: fmt::Arguments<'_>) {
+pub fn log(level: VerboseLogLevel, args: fmt::Arguments<'_>) {
     if !enabled(level) {
         return;
     }
@@ -56,7 +56,7 @@ pub fn log(level: VLogLevel, args: fmt::Arguments<'_>) {
 }
 
 fn global_level() -> &'static AtomicU8 {
-    static LEVEL: AtomicU8 = AtomicU8::new(VLogLevel::Off as u8);
+    static LEVEL: AtomicU8 = AtomicU8::new(VerboseLogLevel::Off as u8);
     &LEVEL
 }
 

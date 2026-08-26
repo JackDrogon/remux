@@ -56,6 +56,10 @@ pub struct SocketBackupOutcome {
     pub outcome: BackupOutcome,
 }
 
+/// Per-socket capture result for a multi-socket backup.
+///
+/// Kept as a list instead of `Result<Vec<_>>` so a later socket failure does
+/// not discard backups that already landed on disk.
 #[derive(Debug)]
 pub enum SocketBackupResult {
     Completed(SocketBackupOutcome),
@@ -114,6 +118,12 @@ pub fn capture_backup(
     capture_backup_with_client(config, requested_backup_id, &adapter)
 }
 
+/// Capture every discovered tmux socket, continuing after per-socket errors.
+///
+/// Discovery itself is still fatal: if the socket directory cannot be read,
+/// nothing has been written yet. An empty directory falls back to the unnamed
+/// default server so a machine with no leftover sockets still backs up `tmux`
+/// without `-L`.
 pub fn capture_all_socket_backups(
     config: &AppState,
 ) -> Result<Vec<SocketBackupResult>, BackupError> {
@@ -121,35 +131,42 @@ pub fn capture_all_socket_backups(
         discover_socket_names().map_err(|source| BackupError::SocketDiscovery { source })?;
 
     if socket_names.is_empty() {
-        return match capture_backup(config, None) {
-            Ok(outcome) => Ok(vec![SocketBackupResult::Completed(SocketBackupOutcome {
-                socket_name: "default".to_string(),
-                outcome,
-            })]),
-            Err(error) => Err(error),
-        };
+        return capture_unnamed_default_socket(config);
     }
 
     Ok(socket_names
         .into_iter()
-        .map(|socket_name| {
-            let mut socket_config = config.clone();
-            let execution_socket_name = if socket_name == "default" {
-                None
-            } else {
-                Some(socket_name.as_str())
-            };
-            socket_config
-                .set_execution_options(ExecutionOptions::with_socket_name(execution_socket_name));
-            match capture_backup(&socket_config, None) {
-                Ok(outcome) => SocketBackupResult::Completed(SocketBackupOutcome {
-                    socket_name,
-                    outcome,
-                }),
-                Err(error) => SocketBackupResult::Failed { socket_name, error },
-            }
-        })
+        .map(|socket_name| capture_backup_for_discovered_socket(config, socket_name))
         .collect())
+}
+
+fn capture_unnamed_default_socket(
+    config: &AppState,
+) -> Result<Vec<SocketBackupResult>, BackupError> {
+    capture_backup(config, None).map(|outcome| {
+        vec![SocketBackupResult::Completed(SocketBackupOutcome {
+            socket_name: "default".to_string(),
+            outcome,
+        })]
+    })
+}
+
+fn capture_backup_for_discovered_socket(
+    config: &AppState,
+    socket_name: String,
+) -> SocketBackupResult {
+    let mut socket_config = config.clone();
+    // A filesystem entry named `default` is the unnamed tmux server. Passing
+    // `-L default` would talk to the same server but write a different catalog.
+    let socket_name_for_tmux = (socket_name != "default").then_some(socket_name.as_str());
+    socket_config.set_execution_options(ExecutionOptions::with_socket_name(socket_name_for_tmux));
+    match capture_backup(&socket_config, None) {
+        Ok(outcome) => SocketBackupResult::Completed(SocketBackupOutcome {
+            socket_name,
+            outcome,
+        }),
+        Err(error) => SocketBackupResult::Failed { socket_name, error },
+    }
 }
 
 fn capture_backup_with_client(
@@ -187,7 +204,7 @@ fn capture_backup_with_client(
     write_snapshot_dir(&backup_path, &snapshot, &pane_contents)?;
 
     tracing::info!(
-        backup_id = %snapshot.tid,
+        backup_id = %snapshot.backup_id,
         path = %backup_path.display(),
         session_count,
         window_count,
@@ -232,7 +249,7 @@ fn capture_snapshot_panes(
     for session in &snapshot.sessions {
         for window in &session.windows {
             for pane in &window.panes {
-                let pane_id = pane.idstr();
+                let pane_id = pane.pane_target();
                 let pane_bytes = client.capture_pane_bytes(&pane_id)?;
                 tracing::debug!(pane_id, byte_len = pane_bytes.len(), "captured pane bytes");
                 pane_contents.insert(pane_id, pane_bytes);

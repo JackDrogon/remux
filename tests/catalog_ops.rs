@@ -39,7 +39,7 @@ fn named_socket_listing_is_isolated() {
     assert_eq!(
         named_backups
             .iter()
-            .map(|entry| entry.id.as_str())
+            .map(|entry| entry.backup_id.as_str())
             .collect::<Vec<_>>(),
         vec!["backup_20240102_120000"],
         "named-socket catalog should expose only active-root backups"
@@ -209,7 +209,7 @@ fn catalog_named_ops_reuse_normalized_backup_names() {
 
     let loaded = storage::load_backup(&config, "  backup_trimmed  ")
         .expect("catalog lookup should trim the requested backup name");
-    assert_eq!(loaded.id, "backup_trimmed");
+    assert_eq!(loaded.backup_id, "backup_trimmed");
 
     let restore_target = storage::resolve_restore_target(&config, Some("  backup_trimmed  "))
         .expect("restore target lookup should reuse normalized backup name");
@@ -246,7 +246,7 @@ fn named_lookup_reads_only_requested_backup() {
 
     let loaded = storage::load_backup(&config, "backup_good")
         .expect("named load should not scan unrelated broken backups");
-    assert_eq!(loaded.id, "backup_good");
+    assert_eq!(loaded.backup_id, "backup_good");
     assert_eq!(loaded.snapshot.sessions[0].name, "ops");
 }
 

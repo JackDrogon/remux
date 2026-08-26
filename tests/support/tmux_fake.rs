@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use remux::error::SubprocessError;
-use remux::tmux::{TMUX_BIN, TmuxAdapter, TmuxClient, TmuxCommand};
+use remux::tmux::{TMUX_BINARY, TmuxAdapter, TmuxClient, TmuxCommand};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeTmuxOutput {
@@ -48,7 +48,7 @@ pub struct FakeTmux {
 
 impl FakeTmux {
     pub fn new(steps: impl IntoIterator<Item = FakeTmuxStep>) -> Self {
-        Self::from_prefix(vec![TMUX_BIN.to_string()], true, steps)
+        Self::from_prefix(vec![TMUX_BINARY.to_string()], true, steps)
     }
 
     pub fn from_prefix(

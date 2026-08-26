@@ -56,7 +56,7 @@ where
             return Ok(());
         };
 
-        let detail = load_backup_detail(config, &backups[index].id)?;
+        let detail = load_backup_detail(config, &backups[index].backup_id)?;
 
         render_interactive_backup_detail(output, &detail)?;
     }
@@ -109,7 +109,7 @@ where
             return Ok(());
         };
 
-        let selected_backup = backups[index].id.clone();
+        let selected_backup = backups[index].backup_id.clone();
         let detail = load_backup_detail(config, &selected_backup)?;
         render_backup_detail(output, &detail)?;
 

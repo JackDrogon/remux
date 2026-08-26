@@ -201,7 +201,7 @@ struct BackupEntry {
 
 struct RestoreEngine<'a, T: TmuxClient + ?Sized> {
     adapter: &'a T,
-    win_base_index: Option<usize>,
+    window_base_index: Option<usize>,
     dummy_session: Option<String>,
 }
 
@@ -229,7 +229,7 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     fn new(adapter: &'a T) -> Self {
         Self {
             adapter,
-            win_base_index: None,
+            window_base_index: None,
             dummy_session: None,
         }
     }
@@ -291,8 +291,8 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
     }
 
     fn ensure_base_index_ready(&mut self) -> Result<usize, RestoreError> {
-        if let Some(win_base_index) = self.win_base_index {
-            return Ok(win_base_index);
+        if let Some(window_base_index) = self.window_base_index {
+            return Ok(window_base_index);
         }
 
         if !self.adapter.has_server()? {
@@ -306,12 +306,12 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         }
 
         let raw = self.adapter.show_option(BASE_INDEX_OPTION)?;
-        let win_base_index = raw
+        let window_base_index = raw
             .trim()
             .parse::<usize>()
             .map_err(|source| RestoreError::InvalidBaseIndex { raw, source })?;
-        self.win_base_index = Some(win_base_index);
-        Ok(win_base_index)
+        self.window_base_index = Some(window_base_index);
+        Ok(window_base_index)
     }
 
     fn restore_session(
@@ -341,32 +341,33 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         window: &Window,
         verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
-        let win_base_index = self.ensure_base_index_ready()?;
+        let window_base_index = self.ensure_base_index_ready()?;
         let window_id = window_id(window);
 
-        self.restore_window_identity(window, win_base_index, window_id)?;
+        self.restore_window_identity(window, window_base_index, window_id)?;
         self.restore_window_panes(window, window_id, verified_panes)?;
         self.adapter
-            .select_layout(&window.sess_name, window_id, &window.layout)?;
+            .select_layout(&window.session_name, window_id, &window.layout)?;
         Ok(())
     }
 
     fn restore_window_identity(
         &self,
         window: &Window,
-        win_base_index: usize,
+        window_base_index: usize,
         window_id: usize,
     ) -> Result<(), RestoreError> {
-        if win_base_index != window_id {
+        if window_base_index != window_id {
             self.adapter
-                .renumber_window(&window.sess_name, win_base_index, window_id)?;
+                .renumber_window(&window.session_name, window_base_index, window_id)?;
         }
 
         self.adapter
-            .rename_window(&window.sess_name, window_id, &window.name)?;
+            .rename_window(&window.session_name, window_id, &window.name)?;
 
         if window.active {
-            self.adapter.select_window(&window.sess_name, window_id)?;
+            self.adapter
+                .select_window(&window.session_name, window_id)?;
         }
 
         Ok(())
@@ -395,7 +396,7 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         let pane_min_id = pane_min_id(window);
         for _ in 0..window.panes.len() - 1 {
             self.adapter
-                .split_window(&window.sess_name, window_id, pane_min_id)?;
+                .split_window(&window.session_name, window_id, pane_min_id)?;
         }
 
         Ok(())
@@ -406,7 +407,7 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         pane: &Pane,
         verified_panes: &VerifiedPaneAssets,
     ) -> Result<(), RestoreError> {
-        let pane_id = pane.idstr();
+        let pane_id = pane.pane_target();
         self.adapter
             .set_pane_path(&pane_id, Path::new(&pane.path))?;
 
@@ -427,7 +428,7 @@ impl<'a, T: TmuxClient + ?Sized> RestoreEngine<'a, T> {
         for session in sessions {
             for window in &session.windows {
                 for pane in &window.panes {
-                    let pane_id = pane.idstr();
+                    let pane_id = pane.pane_target();
                     let content_path =
                         self.validated_pane_content_path(&pane_id, pane_assets, backup_dir)?;
                     verified.insert(pane_id, content_path);
@@ -492,7 +493,7 @@ fn invalid_pane_content(pane_id: &str, path: PathBuf, detail: impl Into<String>)
 }
 
 fn window_id(window: &Window) -> usize {
-    usize::try_from(window.win_id)
+    usize::try_from(window.window_id)
         .expect("u32 window ids should always fit into usize on supported targets")
 }
 

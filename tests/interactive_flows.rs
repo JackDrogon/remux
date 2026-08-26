@@ -293,7 +293,7 @@ fn assert_stable_stderr(stderr: &str, context: &str) {
 struct InteractiveEnv {
     root: PathBuf,
     home: PathBuf,
-    bin_dir: PathBuf,
+    binary_directory: PathBuf,
     fake_log: PathBuf,
     fake_state: PathBuf,
 }
@@ -315,16 +315,16 @@ impl InteractiveEnv {
         fs::create_dir_all(&root).expect("should create interactive test root");
 
         let home = root.join("home");
-        let bin_dir = root.join("bin");
+        let binary_directory = root.join("bin");
         let fake_log = root.join("fake-tmux.log");
         let fake_state = root.join("fake-tmux.state");
         fs::create_dir_all(&home).expect("should create fake HOME");
-        fs::create_dir_all(&bin_dir).expect("should create fake bin dir");
+        fs::create_dir_all(&binary_directory).expect("should create fake bin dir");
 
         Self {
             root,
             home,
-            bin_dir,
+            binary_directory,
             fake_log,
             fake_state,
         }
@@ -341,7 +341,7 @@ impl InteractiveEnv {
     }
 
     fn install_fake_tmux(&self) {
-        let script_path = self.bin_dir.join("tmux");
+        let script_path = self.binary_directory.join("tmux");
         fs::write(&script_path, FAKE_TMUX_SCRIPT).expect("should write fake tmux script");
         let mut permissions = fs::metadata(&script_path)
             .expect("fake tmux script should exist")
@@ -416,7 +416,7 @@ impl InteractiveEnv {
         command
             .args(args)
             .env("HOME", &self.home)
-            .env("PATH", &self.bin_dir)
+            .env("PATH", &self.binary_directory)
             .env("REMUX_FAKE_LOG", &self.fake_log)
             .env("REMUX_FAKE_STATE", &self.fake_state)
             .stdin(Stdio::piped())

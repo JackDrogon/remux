@@ -86,13 +86,13 @@ fn restore_recreates_session_against_real_tmux() {
         "expected restore success message, stdout was: {restore_stdout}"
     );
 
-    let sessions = env.tmux_stdout(&["list-sessions", "-F", "#S"]);
+    let sessions = env.read_tmux_output(&["list-sessions", "-F", "#S"]);
     assert!(
         sessions.lines().any(|line| line == "restoreme"),
         "expected restored session in tmux, stdout was: {sessions}"
     );
 
-    let windows = env.tmux_stdout(&["list-windows", "-trestoreme", "-F", "#W"]);
+    let windows = env.read_tmux_output(&["list-windows", "-trestoreme", "-F", "#W"]);
     assert!(
         windows.lines().any(|line| line == "editor"),
         "expected restored window name in tmux, stdout was: {windows}"
@@ -186,7 +186,7 @@ impl LiveTmuxEnv {
         assert_success(&output, "starting live tmux session should succeed");
     }
 
-    fn tmux_stdout(&self, args: &[&str]) -> String {
+    fn read_tmux_output(&self, args: &[&str]) -> String {
         let output = self.run_tmux(args);
         assert_success(&output, "tmux command should succeed");
         String::from_utf8_lossy(&output.stdout).into_owned()

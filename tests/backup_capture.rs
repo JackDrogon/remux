@@ -59,7 +59,7 @@ fn creates_snapshot_tree() {
     let snapshot = storage::read_snapshot_dir(&backup_dir)
         .expect("generated snapshot should decode as Rust snapshot directory");
     let tmux = &snapshot.tmux;
-    assert_eq!(tmux.tid, "backup_20240101_120000");
+    assert_eq!(tmux.backup_id, "backup_20240101_120000");
     assert_create_time_shape(&tmux.create_time);
     assert_eq!(tmux.sessions.len(), 1);
 
@@ -70,7 +70,7 @@ fn creates_snapshot_tree() {
     assert_eq!(session.windows.len(), 1);
 
     let window = &session.windows[0];
-    assert_eq!(window.win_id, 1);
+    assert_eq!(window.window_id, 1);
     assert_eq!(window.name, "editor");
     assert!(window.active);
     assert_eq!(window.layout, "1900,120x40,0,0,0");
@@ -79,7 +79,7 @@ fn creates_snapshot_tree() {
     let pane_ids = window
         .panes
         .iter()
-        .map(|pane| pane.idstr())
+        .map(|pane| pane.pane_target())
         .collect::<Vec<_>>();
     assert_eq!(pane_ids, vec!["work:1.0", "work:1.1"]);
 
@@ -602,10 +602,9 @@ fn assert_create_time_shape(value: &str) {
     assert_eq!(bytes[13], b':');
     assert_eq!(bytes[16], b':');
     assert!(
-        bytes
-            .iter()
-            .enumerate()
-            .all(|(idx, ch)| matches!(idx, 4 | 7 | 10 | 13 | 16) || ch.is_ascii_digit()),
+        bytes.iter().enumerate().all(|(index, character)| {
+            matches!(index, 4 | 7 | 10 | 13 | 16) || character.is_ascii_digit()
+        }),
         "unexpected create_time content: {value}"
     );
 }
@@ -618,7 +617,7 @@ fn assert_backup_id_shape(value: &str) {
         bytes
             .iter()
             .enumerate()
-            .all(|(idx, ch)| idx == 8 || ch.is_ascii_digit()),
+            .all(|(index, character)| index == 8 || character.is_ascii_digit()),
         "unexpected backup id content: {value}"
     );
 }
@@ -641,7 +640,7 @@ fn list_directory_names(path: &Path) -> Vec<String> {
 struct TestEnv {
     root: PathBuf,
     home: PathBuf,
-    bin_dir: PathBuf,
+    binary_directory: PathBuf,
     fake_log: PathBuf,
 }
 
@@ -662,15 +661,15 @@ impl TestEnv {
         fs::create_dir_all(&root).expect("should create temp test root");
 
         let home = root.join("home");
-        let bin_dir = root.join("bin");
+        let binary_directory = root.join("bin");
         let fake_log = root.join("fake-tmux.log");
         fs::create_dir_all(&home).expect("should create fake HOME");
-        fs::create_dir_all(&bin_dir).expect("should create fake bin dir");
+        fs::create_dir_all(&binary_directory).expect("should create fake bin dir");
 
         Self {
             root,
             home,
-            bin_dir,
+            binary_directory,
             fake_log,
         }
     }
@@ -698,7 +697,7 @@ impl TestEnv {
     }
 
     fn install_fake_tmux(&self) {
-        let script_path = self.bin_dir.join("tmux");
+        let script_path = self.binary_directory.join("tmux");
         fs::write(&script_path, FAKE_TMUX_SCRIPT).expect("should write fake tmux script");
         let mut permissions = fs::metadata(&script_path)
             .expect("fake tmux script should exist")
@@ -754,7 +753,7 @@ impl TestEnv {
         let mut command = Command::new(env!("CARGO_BIN_EXE_remux"));
         command.args(args);
         command.env("HOME", &self.home);
-        command.env("PATH", &self.bin_dir);
+        command.env("PATH", &self.binary_directory);
         command.env("TMUX_TMPDIR", &self.root);
         command.env("REMUX_FAKE_LOG", &self.fake_log);
         if no_server {

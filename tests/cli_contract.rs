@@ -11,7 +11,7 @@ fn socket_can_appear_before_or_after_action() {
         .expect("socket after action should parse");
 
     assert_eq!(before.socket_name.as_deref(), Some("sockA"));
-    assert_eq!(before.vlog_level, 0);
+    assert_eq!(before.verbose_log_level, 0);
     assert_eq!(before.action, Action::Backup);
     assert_eq!(before.action_arg.as_deref(), Some("backup_20240101_120000"));
     assert_eq!(before, after);
@@ -23,7 +23,7 @@ fn subcommands_map_cleanly_to_internal_actions() {
         .expect("backup command should parse");
 
     assert_eq!(parsed.socket_name.as_deref(), Some("sockA"));
-    assert_eq!(parsed.vlog_level, 0);
+    assert_eq!(parsed.verbose_log_level, 0);
     assert_eq!(parsed.action, Action::Backup);
     assert_eq!(parsed.action_arg.as_deref(), Some("named_backup"));
 
@@ -41,12 +41,12 @@ fn subcommands_map_cleanly_to_internal_actions() {
 
     let verbose = parse_cli_args(["remux", "-v", "backup", "named_backup"])
         .expect("tmux verbose should parse globally");
-    assert_eq!(verbose.vlog_level, 1);
+    assert_eq!(verbose.verbose_log_level, 1);
     assert_eq!(verbose.action, Action::Backup);
 
     let verbose_twice = parse_cli_args(["remux", "-vv", "backup", "named_backup"])
         .expect("multiple tmux verbose flags should parse globally");
-    assert_eq!(verbose_twice.vlog_level, 2);
+    assert_eq!(verbose_twice.verbose_log_level, 2);
     assert_eq!(verbose_twice.action, Action::Backup);
 }
 

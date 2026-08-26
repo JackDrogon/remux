@@ -9,7 +9,7 @@ pub(crate) mod observability;
 pub mod storage;
 pub mod tmux;
 pub mod ui;
-pub mod vlog;
+pub mod verbose_log;
 
 pub const BINARY_NAME: &str = "remux";
 pub const HOME_DIR_NAME: &str = ".remux";

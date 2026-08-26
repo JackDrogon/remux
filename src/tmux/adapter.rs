@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use super::TMUX_BIN;
+use super::TMUX_BINARY;
 use super::client::TmuxClient;
 use super::command::TmuxCommand;
 use super::error::SubprocessError;
@@ -51,7 +51,7 @@ where
 
     pub fn render_command(&self, command: TmuxCommand) -> Vec<String> {
         let parts = command.into_parts();
-        if parts.first().map(|part| part.as_str()) == Some(TMUX_BIN) {
+        if parts.first().map(|part| part.as_str()) == Some(TMUX_BINARY) {
             let mut rendered = self.command_prefix.clone();
             rendered.extend(parts.into_iter().skip(1));
             rendered
@@ -60,13 +60,16 @@ where
         }
     }
 
-    pub fn run_raw(&self, command: TmuxCommand) -> Result<CommandOutput, SubprocessError> {
+    pub fn execute_without_status_check(
+        &self,
+        command: TmuxCommand,
+    ) -> Result<CommandOutput, SubprocessError> {
         let command = self.render_command(command);
         self.subprocess.execute(command)
     }
 
     pub fn run(&self, command: TmuxCommand) -> Result<CommandOutput, SubprocessError> {
-        let output = self.run_raw(command)?;
+        let output = self.execute_without_status_check(command)?;
         if output.success() {
             Ok(output)
         } else {
@@ -80,15 +83,15 @@ where
     }
 
     pub fn has_server(&self) -> Result<bool, SubprocessError> {
-        self.run_raw_success(TmuxCommand::ListSessions)
+        self.command_succeeds(TmuxCommand::ListSessions)
     }
 
     pub fn list_sessions(&self) -> Result<Vec<String>, SubprocessError> {
-        self.run_lines(TmuxCommand::ListSessions)
+        self.execute_listing_command(TmuxCommand::ListSessions)
     }
 
     pub fn list_windows(&self, session_name: &str) -> Result<Vec<String>, SubprocessError> {
-        self.run_lines(TmuxCommand::ListWindows {
+        self.execute_listing_command(TmuxCommand::ListWindows {
             session_name: session_name.to_string(),
         })
     }
@@ -98,7 +101,7 @@ where
         session_name: &str,
         window_index: usize,
     ) -> Result<Vec<String>, SubprocessError> {
-        self.run_lines(TmuxCommand::ListPanes {
+        self.execute_listing_command(TmuxCommand::ListPanes {
             session_name: session_name.to_string(),
             window_index,
         })
@@ -110,7 +113,7 @@ where
         width: u32,
         height: u32,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::CreateSession {
+        self.execute_mutating_command(TmuxCommand::CreateSession {
             session_name: session_name.to_string(),
             width,
             height,
@@ -118,39 +121,39 @@ where
     }
 
     pub fn kill_session(&self, session_name: &str) -> Result<bool, SubprocessError> {
-        self.run_raw_success(TmuxCommand::KillSession {
+        self.command_succeeds(TmuxCommand::KillSession {
             session_name: session_name.to_string(),
         })
     }
 
     pub fn capture_pane(&self, pane_id: &str) -> Result<String, SubprocessError> {
-        self.run_stdout(self.capture_pane_command(pane_id))
+        self.execute_text_command(self.capture_pane_command(pane_id))
     }
 
     pub fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>, SubprocessError> {
-        self.run_bytes(self.capture_pane_command(pane_id))
+        self.execute_byte_command(self.capture_pane_command(pane_id))
     }
 
     pub fn show_option(&self, option: &str) -> Result<String, SubprocessError> {
-        self.run_stdout(TmuxCommand::ShowOption {
+        self.execute_text_command(TmuxCommand::ShowOption {
             option: option.to_string(),
         })
     }
 
     pub fn has_session(&self, session_name: &str) -> Result<bool, SubprocessError> {
-        self.run_raw_success(TmuxCommand::HasSession {
+        self.command_succeeds(TmuxCommand::HasSession {
             session_name: session_name.to_string(),
         })
     }
 
     pub fn clear_pane(&self, pane_id: &str) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::ClearPane {
+        self.execute_mutating_command(TmuxCommand::ClearPane {
             pane_id: pane_id.to_string(),
         })
     }
 
     pub fn send_keys(&self, target: &str, keys: &str) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::SendKeys {
+        self.execute_mutating_command(TmuxCommand::SendKeys {
             target: target.to_string(),
             keys: keys.to_string(),
         })
@@ -165,14 +168,14 @@ where
         session_name: &str,
         base_index: usize,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::NewEmptyWindow {
+        self.execute_mutating_command(TmuxCommand::NewEmptyWindow {
             session_name: session_name.to_string(),
             base_index,
         })
     }
 
     pub fn move_window(&self, source: &str, target: &str) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::MoveWindow {
+        self.execute_mutating_command(TmuxCommand::MoveWindow {
             source: source.to_string(),
             target: target.to_string(),
         })
@@ -193,7 +196,7 @@ where
         window_id: usize,
         name: &str,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::RenameWindow {
+        self.execute_mutating_command(TmuxCommand::RenameWindow {
             session_name: session_name.to_string(),
             window_id,
             name: name.to_string(),
@@ -205,7 +208,7 @@ where
         session_name: &str,
         window_id: usize,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::SelectWindow {
+        self.execute_mutating_command(TmuxCommand::SelectWindow {
             session_name: session_name.to_string(),
             window_id,
         })
@@ -217,7 +220,7 @@ where
         window_id: usize,
         pane_min_id: usize,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::SplitWindow {
+        self.execute_mutating_command(TmuxCommand::SplitWindow {
             session_name: session_name.to_string(),
             window_id,
             pane_min_id,
@@ -230,7 +233,7 @@ where
         window_id: usize,
         layout: &str,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::SelectLayout {
+        self.execute_mutating_command(TmuxCommand::SelectLayout {
             session_name: session_name.to_string(),
             window_id,
             layout: layout.to_string(),
@@ -242,7 +245,7 @@ where
         pane_id: &str,
         filename: &Path,
     ) -> Result<(), SubprocessError> {
-        self.run_unit(TmuxCommand::LoadContent {
+        self.execute_mutating_command(TmuxCommand::LoadContent {
             pane_id: pane_id.to_string(),
             filename: filename.to_string_lossy().into_owned(),
         })
@@ -255,24 +258,27 @@ where
         }
     }
 
-    fn run_raw_success(&self, command: TmuxCommand) -> Result<bool, SubprocessError> {
-        Ok(self.run_raw(command)?.success())
+    fn command_succeeds(&self, command: TmuxCommand) -> Result<bool, SubprocessError> {
+        Ok(self.execute_without_status_check(command)?.success())
     }
 
-    fn run_lines(&self, command: TmuxCommand) -> Result<Vec<String>, SubprocessError> {
+    fn execute_listing_command(
+        &self,
+        command: TmuxCommand,
+    ) -> Result<Vec<String>, SubprocessError> {
         Ok(split_tmux_lines(&self.run(command)?.stdout))
     }
 
-    fn run_stdout(&self, command: TmuxCommand) -> Result<String, SubprocessError> {
+    fn execute_text_command(&self, command: TmuxCommand) -> Result<String, SubprocessError> {
         Ok(self.run(command)?.stdout)
     }
 
-    fn run_unit(&self, command: TmuxCommand) -> Result<(), SubprocessError> {
+    fn execute_mutating_command(&self, command: TmuxCommand) -> Result<(), SubprocessError> {
         self.run(command)?;
         Ok(())
     }
 
-    fn run_bytes(&self, command: TmuxCommand) -> Result<Vec<u8>, SubprocessError> {
+    fn execute_byte_command(&self, command: TmuxCommand) -> Result<Vec<u8>, SubprocessError> {
         let output = self
             .subprocess
             .execute_bytes(self.render_command(command))?;

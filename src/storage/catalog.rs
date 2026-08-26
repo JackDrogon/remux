@@ -32,7 +32,7 @@ enum SnapshotLoadMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupEntry {
-    pub id: String,
+    pub backup_id: String,
     pub path: PathBuf,
     pub modified_at: Duration,
     pub snapshot: Tmux,
@@ -111,14 +111,14 @@ pub fn resolve_restore_target(
     requested_name: Option<&str>,
 ) -> Result<String, CatalogError> {
     match requested_name {
-        Some(requested_name) => Ok(load_backup(config, requested_name)?.id),
-        _ => Ok(latest_backup(config)?.id),
+        Some(requested_name) => Ok(load_backup(config, requested_name)?.backup_id),
+        _ => Ok(latest_backup(config)?.backup_id),
     }
 }
 
 pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), CatalogError> {
     let entry = load_backup(config, backup_name)?;
-    tracing::info!(backup_name = %entry.id, path = %entry.path.display(), "deleting backup entry");
+    tracing::info!(backup_name = %entry.backup_id, path = %entry.path.display(), "deleting backup entry");
     fs_ops::remove_dir_all(&entry.path, |path, source| CatalogError::DeleteBackup {
         path,
         source,
@@ -215,7 +215,7 @@ fn read_backup_entry(
         .unwrap_or_default();
 
     Ok(BackupEntry {
-        id: backup_id,
+        backup_id,
         path,
         modified_at,
         snapshot,
@@ -247,9 +247,11 @@ fn sort_backups(backups: &mut [BackupEntry], sort_order: BackupSortOrder) {
             right
                 .modified_at
                 .cmp(&left.modified_at)
-                .then_with(|| right.id.cmp(&left.id))
+                .then_with(|| right.backup_id.cmp(&left.backup_id))
         }),
-        BackupSortOrder::BackupIdDesc => backups.sort_by(|left, right| right.id.cmp(&left.id)),
+        BackupSortOrder::BackupIdDesc => {
+            backups.sort_by(|left, right| right.backup_id.cmp(&left.backup_id))
+        }
     }
 }
 

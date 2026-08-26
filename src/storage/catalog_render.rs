@@ -36,7 +36,7 @@ pub fn render_summary(backups: &[BackupEntry]) -> String {
 pub fn render_detail(entry: &BackupEntry) -> String {
     format!(
         "{}\n{}",
-        ui::detail_header(&entry.id, false),
+        ui::detail_header(&entry.backup_id, false),
         render_detail_body(&entry.snapshot)
     )
 }
@@ -44,7 +44,7 @@ pub fn render_detail(entry: &BackupEntry) -> String {
 pub fn render_interactive_detail(entry: &BackupEntry) -> String {
     format!(
         "{}\n{}\n{}",
-        ui::detail_header(&entry.id, true),
+        ui::detail_header(&entry.backup_id, true),
         render_detail_body(&entry.snapshot),
         repeat_line('<')
     )
@@ -57,7 +57,7 @@ fn render_detail_body(tmux: &Tmux) -> String {
     )];
     lines.push(format!(
         " Backup─┬─[{}] ({} sessions):",
-        tmux.tid,
+        tmux.backup_id,
         tmux.sessions.len()
     ));
 
@@ -80,7 +80,7 @@ fn append_session_detail(
         session.name,
         session.windows.len()
     );
-    lines.push(tree_struct(session_text, &[is_last_session], 1, false));
+    lines.push(render_tree_line(session_text, &[is_last_session], 1, false));
 
     for (window_index, window) in session.windows.iter().enumerate() {
         append_window_detail(lines, session, window, is_last_session, window_index);
@@ -97,11 +97,11 @@ fn append_window_detail(
     let is_last_window = window_index + 1 == session.windows.len();
     let window_text = format!(
         "─Window─┬─({}) [{}] ({} panes):",
-        window.win_id,
+        window.window_id,
         window.name,
         window.panes.len()
     );
-    lines.push(tree_struct(
+    lines.push(render_tree_line(
         window_text,
         &[is_last_session, is_last_window],
         2,
@@ -130,7 +130,7 @@ fn append_pane_detail(
 ) {
     let is_last_pane = pane_index + 1 == window.panes.len();
     let pane_text = format!("─Pane ({}) {}", pane.pane_id, pane.path);
-    lines.push(tree_struct(
+    lines.push(render_tree_line(
         pane_text,
         &[is_last_session, is_last_window, is_last_pane],
         3,
@@ -138,11 +138,16 @@ fn append_pane_detail(
     ));
 }
 
-fn repeat_line(ch: char) -> String {
-    ch.to_string().repeat(LIST_WIDTH)
+fn repeat_line(character: char) -> String {
+    character.to_string().repeat(LIST_WIDTH)
 }
 
-fn tree_struct(text: String, ancestor_is_last: &[bool], depth: usize, placeholder: bool) -> String {
+fn render_tree_line(
+    text: String,
+    ancestor_is_last: &[bool],
+    depth: usize,
+    placeholder: bool,
+) -> String {
     if depth == 0 {
         return text;
     }
@@ -160,11 +165,11 @@ fn tree_struct(text: String, ancestor_is_last: &[bool], depth: usize, placeholde
         line = format!(" {line}");
     }
 
-    tree_struct(line, ancestor_is_last, current_level, true)
+    render_tree_line(line, ancestor_is_last, current_level, true)
 }
 
 fn format_short_info(tmux: &Tmux) -> String {
-    format_short_info_columns(&tmux.tid, &session_names(tmux), &tmux.create_time)
+    format_short_info_columns(&tmux.backup_id, &session_names(tmux), &tmux.create_time)
 }
 
 fn format_short_info_columns(name: &str, sessions: &str, created_on: &str) -> String {

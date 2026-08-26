@@ -207,7 +207,7 @@ fn build_manifest(
         for window in &session.windows {
             let mut panes = Vec::new();
             for pane in &window.panes {
-                let pane_id = pane.idstr();
+                let pane_id = pane.pane_target();
                 if seen_pane_ids.insert(pane_id.clone(), ()).is_some() {
                     return Err(SnapshotError::DuplicatePaneId { pane_id });
                 }
@@ -254,7 +254,7 @@ fn build_manifest(
             }
 
             windows.push(SnapshotWindow {
-                id: window.win_id,
+                id: window.window_id,
                 name: window.name.clone(),
                 active: window.active,
                 layout: window.layout.clone(),
@@ -272,7 +272,7 @@ fn build_manifest(
 
     Ok(SnapshotManifestFile {
         schema_version: current_version(),
-        backup_id: tmux.tid.clone(),
+        backup_id: tmux.backup_id.clone(),
         created_at: tmux.create_time.clone(),
         sessions,
         pane_table,

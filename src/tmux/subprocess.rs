@@ -3,7 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::error::SubprocessError;
-use crate::vlog::{self, VLogLevel};
+use crate::verbose_log::{self, VerboseLogLevel};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -163,40 +163,69 @@ fn wait_for_output(
     timeout: Option<Duration>,
 ) -> Result<Output, SubprocessError> {
     if let Some(timeout) = timeout {
-        let deadline = Instant::now() + timeout;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let output = child.wait_with_output().map_err(|source| {
-                            SubprocessError::WaitFailed {
-                                command: command.clone(),
-                                source,
-                            }
-                        })?;
-
-                        return Err(SubprocessError::TimedOut {
-                            command,
-                            timeout,
-                            status: output.status.code(),
-                            stdout: normalize_output_stream(output.stdout),
-                            stderr: normalize_output_stream(output.stderr),
-                        });
-                    }
-                    thread::sleep(POLL_INTERVAL);
-                }
-                Err(source) => {
-                    return Err(SubprocessError::WaitFailed { command, source });
-                }
-            }
+        // Blocking `wait_with_output` cannot honor a deadline, so poll until
+        // the process exits or the timeout elapses.
+        if !subprocess_exited_before_deadline(&command, &mut child, timeout)? {
+            return kill_timed_out_subprocess(command, child, timeout);
         }
     }
 
     child
         .wait_with_output()
         .map_err(|source| SubprocessError::WaitFailed { command, source })
+}
+
+fn subprocess_exited_before_deadline(
+    command: &[String],
+    child: &mut Child,
+    timeout: Duration,
+) -> Result<bool, SubprocessError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if subprocess_has_exited(command, child)? {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn subprocess_has_exited(command: &[String], child: &mut Child) -> Result<bool, SubprocessError> {
+    match child.try_wait() {
+        Ok(status) => Ok(status.is_some()),
+        Err(source) => Err(SubprocessError::WaitFailed {
+            command: command.to_vec(),
+            source,
+        }),
+    }
+}
+
+/// Kill the still-running process and keep its output for the timeout error.
+///
+/// `wait_with_output` has to take ownership of `Child` to drain stdout/stderr,
+/// so this path consumes the process instead of returning it to the caller.
+fn kill_timed_out_subprocess(
+    command: Vec<String>,
+    mut child: Child,
+    timeout: Duration,
+) -> Result<Output, SubprocessError> {
+    let _ = child.kill();
+    let output = child
+        .wait_with_output()
+        .map_err(|source| SubprocessError::WaitFailed {
+            command: command.clone(),
+            source,
+        })?;
+
+    Err(SubprocessError::TimedOut {
+        command,
+        timeout,
+        status: output.status.code(),
+        stdout: normalize_output_stream(output.stdout),
+        stderr: normalize_output_stream(output.stderr),
+    })
 }
 
 fn log_command_output(output: &CommandOutput, elapsed: Duration, byte_stream: bool) {
@@ -255,8 +284,8 @@ fn format_command_for_log(command: &[String]) -> String {
 
 fn log_tmux_command_start(command: &[String]) {
     let rendered_command = format_command_for_log(command);
-    vlog::log(
-        VLogLevel::Debug1,
+    verbose_log::log(
+        VerboseLogLevel::Debug1,
         format_args!("debug1: executing tmux command: {rendered_command}\n"),
     );
 }
@@ -270,8 +299,8 @@ fn log_tmux_command_finish(
     byte_stream: bool,
 ) {
     let rendered_command = format_command_for_log(command);
-    vlog::log(
-        VLogLevel::Debug2,
+    verbose_log::log(
+        VerboseLogLevel::Debug2,
         format_args!(
             "debug2: tmux command finished: {rendered_command} status={status_code:?} elapsed_ms={} stdout_len={stdout_len} stderr_len={stderr_len} byte_stream={byte_stream}\n",
             elapsed.as_millis() as u64,
@@ -286,8 +315,8 @@ fn log_tmux_command_failure(
     byte_stream: bool,
 ) {
     let rendered_command = format_command_for_log(command);
-    vlog::log(
-        VLogLevel::Debug2,
+    verbose_log::log(
+        VerboseLogLevel::Debug2,
         format_args!(
             "debug2: tmux command failed: {rendered_command} elapsed_ms={} byte_stream={byte_stream} error={error}\n",
             elapsed.as_millis() as u64,

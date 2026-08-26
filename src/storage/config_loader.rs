@@ -8,9 +8,9 @@ pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../../assets/config.toml
 
 pub fn load_or_init_app_config(paths: &ConfigPaths) -> Result<AppConfig, ConfigError> {
     bootstrap_config(paths)?;
-    let app = parse_config_file(paths)?;
-    ensure_runtime_dirs(paths, &app)?;
-    Ok(app)
+    let config = parse_config_file(paths)?;
+    ensure_runtime_dirs(paths, &config)?;
+    Ok(config)
 }
 
 fn ensure_runtime_dirs(paths: &ConfigPaths, config: &AppConfig) -> Result<(), ConfigError> {

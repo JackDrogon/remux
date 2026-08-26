@@ -1,4 +1,4 @@
-use super::TMUX_BIN;
+use super::TMUX_BINARY;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxCommandPrefixBuilder {
@@ -15,7 +15,7 @@ impl TmuxCommandPrefixBuilder {
     }
 
     pub fn system_default() -> Self {
-        Self::new(TMUX_BIN)
+        Self::new(TMUX_BINARY)
     }
 
     pub fn socket_name(mut self, socket_name: Option<&str>) -> Self {

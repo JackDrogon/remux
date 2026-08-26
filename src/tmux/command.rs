@@ -1,6 +1,6 @@
 use std::path::Path;
 
-pub const TMUX_BIN: &str = "tmux";
+pub const TMUX_BINARY: &str = "tmux";
 pub const OUTPUT_SEPARATOR: &str = ":=:";
 pub const LIST_SESSIONS_FORMAT: &str =
     "#S:=:(#{window_width},#{window_height}):=:#{session_attached}";
@@ -124,7 +124,7 @@ impl TmuxCommandBuilder {
 
     fn build(self) -> Vec<String> {
         let mut parts = Vec::with_capacity(self.args.len() + 2);
-        parts.push(TMUX_BIN.to_string());
+        parts.push(TMUX_BINARY.to_string());
         parts.push(self.subcommand.to_string());
         parts.extend(self.args.into_iter().map(TmuxCommandArg::render));
         parts
