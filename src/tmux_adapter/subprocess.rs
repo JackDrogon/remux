@@ -3,7 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::error::SubprocessError;
-use crate::verbose_log::{self, VerboseLogLevel};
+use super::verbose_log::{self, VerboseLogLevel};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 

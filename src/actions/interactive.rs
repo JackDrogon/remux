@@ -2,7 +2,10 @@ use std::io::{self, BufRead, Write};
 
 use thiserror::Error;
 
-use crate::{actions::restore, config::AppState, storage, ui};
+use crate::actions::restore;
+use crate::cli::{catalog_render, ui};
+use crate::config::AppState;
+use crate::storage;
 
 #[derive(Debug, Error)]
 pub enum InteractiveError {
@@ -271,7 +274,7 @@ fn render_backup_summary<W>(
 where
     W: Write,
 {
-    write_line(output, &storage::render_summary(backups))
+    write_line(output, &catalog_render::render_summary(backups))
 }
 
 fn render_backup_detail<W>(
@@ -281,7 +284,7 @@ fn render_backup_detail<W>(
 where
     W: Write,
 {
-    write_line(output, &storage::render_detail(detail))
+    write_line(output, &catalog_render::render_detail(detail))
 }
 
 fn render_interactive_backup_detail<W>(
@@ -291,7 +294,7 @@ fn render_interactive_backup_detail<W>(
 where
     W: Write,
 {
-    write_line(output, &storage::render_interactive_detail(detail))
+    write_line(output, &catalog_render::render_interactive_detail(detail))
 }
 
 fn render_interactive_header<W>(
@@ -312,7 +315,7 @@ fn show_no_backups<W>(output: &mut W) -> Result<(), InteractiveError>
 where
     W: Write,
 {
-    write_line(output, storage::no_backups_message())?;
+    write_line(output, catalog_render::no_backups_message())?;
     output.flush()?;
     Ok(())
 }

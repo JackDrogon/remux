@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use super::{AppConfig, ConfigError, ConfigPaths, paths::normalize_socket_name};
 use crate::storage;
-use crate::tmux::tmux_command_prefix;
+use crate::tmux_adapter::tmux_command_prefix;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionOptions {

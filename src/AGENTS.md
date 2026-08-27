@@ -1,28 +1,30 @@
 # SOURCE LAYER KNOWLEDGE BASE
 
 ## SOURCE STRUCTURE
-- `main.rs` / `cli.rs`: CLI argument parsing and high-level routing.
+- `main.rs`: Binary entrypoint.
+- `cli/`: Argument parsing, dispatch, `AppError`, observability, and catalog presentation.
 - `actions/`: CLI action implementations such as backup, restore, and interactive flows.
 - `lib.rs`: Public API facade for integration testing.
-- `model.rs`: Pure data structures (Session -> Window -> Pane).
-- `backup_name.rs`: Centralized validation for backup identifiers.
+- `model/`: Pure data structures (Session -> Window -> Pane).
+- `storage/`: Catalog, snapshot persistence, backup-name rules, and compact fingerprints.
+- `tmux_adapter/`: tmux subprocess adapter, including command verbosity.
 
 ## IMPLEMENTATION GUIDELINES
-- **Tmux Interaction** (`tmux.rs`): Mandatory adapter layer. Uses custom format strings (`:=:`) for deterministic output. Handles raw process bytes to avoid encoding-related data loss.
+- **Tmux Interaction** (`tmux_adapter/`): Mandatory adapter layer. Uses custom format strings (`:=:`) for deterministic output. Handles raw process bytes to avoid encoding-related data loss.
 - **Persistence** (`snapshot.rs`): Dual-file JSON storage (`summary.json`, `manifest.json`). Must maintain Python-style `__class__` markers for legacy compatibility and handle optional JSON fields like `Window.name`.
 - **Business Logic**:
-    - `actions/backup.rs`: State capture (raw bytes for pane content). Groups sessions and captures terminal dimensions.
+    - `actions/backup/`: State capture (raw bytes for pane content) and `/proc` command-tree inspection. Groups sessions and captures terminal dimensions.
     - `actions/restore.rs`: Sequential replay (renumbering, base-index probing). Rebuilds layouts using tmux-native strings.
     - `catalog.rs`: Catalog lifecycle and isolation. Sorting by `mtime desc` then `id desc`.
 - **Config** (`config/`): Path derivation (`AppState::active_backup_path`). Handles socket-dir sanitization (`[^A-Za-z0-9_.-] -> _`).
 
 ## CORE DOMAIN
-- `model.rs`:
+- `model/`:
     - **Session**: High-level grouping, tracks active window.
     - **Window**: Tracks order, layout, and child panes.
     - **Pane**: Tracks working directory, history content, and TTY state.
 - `actions/interactive.rs`: Reloads catalog on every loop iteration to keep state fresh.
-- `backup_name.rs`: Centralized regex validation for custom backup IDs.
+- `storage/backup_name.rs`: Centralized regex validation for custom backup IDs.
 
 ## CONVENTIONS
 - **Path Isolation**: Derive all backup paths through `AppState` to honor `-L` socket isolation.

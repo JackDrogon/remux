@@ -2,7 +2,7 @@ mod support;
 
 use std::path::Path;
 
-use remux::tmux::{TmuxClient, TmuxCommand};
+use remux::tmux_adapter::{TmuxClient, TmuxCommand};
 
 use crate::support::tmux_fake::{FakeTmux, FakeTmuxOutput, FakeTmuxStep};
 

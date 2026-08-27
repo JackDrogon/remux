@@ -1,6 +1,7 @@
-use crate::{model::Tmux, ui};
+use crate::model::Tmux;
+use crate::storage::BackupEntry;
 
-use super::catalog::BackupEntry;
+use super::ui;
 
 const LIST_WIDTH: usize = 72;
 const TREE_SPACE: &str = "        ";

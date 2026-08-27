@@ -2,10 +2,10 @@ mod adapter;
 mod client;
 mod command;
 mod error;
-mod prefix;
 mod runtime;
 mod sockets;
 mod subprocess;
+pub mod verbose_log;
 
 pub use adapter::TmuxAdapter;
 pub use client::TmuxClient;
@@ -14,7 +14,6 @@ pub use command::{
     TmuxCommand,
 };
 pub use error::SubprocessError;
-pub use prefix::{TmuxCommandPrefixBuilder, tmux_command_prefix};
-pub use runtime::TmuxRuntimeOptions;
+pub use runtime::{TmuxRuntimeOptions, tmux_command_prefix};
 pub use sockets::{discover_socket_names, socket_dir};
 pub use subprocess::{ByteCommandOutput, CommandOutput, SubprocessExecutor, SubprocessRunner};

@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use remux::actions::restore::{resolve_backup_name, restore_from_path_with_adapter};
 use remux::model::{Pane, Session, Size, Tmux, Window};
 use remux::storage;
-use remux::tmux::TmuxAdapter;
+use remux::tmux_adapter::TmuxAdapter;
 
 mod support;
 

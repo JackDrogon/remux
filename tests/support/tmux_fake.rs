@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::Path;
 
-use remux::error::SubprocessError;
-use remux::tmux::{TMUX_BINARY, TmuxAdapter, TmuxClient, TmuxCommand};
+use remux::tmux_adapter::SubprocessError;
+use remux::tmux_adapter::{TMUX_BINARY, TmuxAdapter, TmuxClient, TmuxCommand};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeTmuxOutput {

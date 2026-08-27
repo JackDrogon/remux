@@ -13,13 +13,15 @@ use std::path::PathBuf;
 use chrono::{Local, NaiveDateTime};
 use thiserror::Error;
 
-use crate::backup_name::BackupNameError;
 use crate::config::{AppState, ExecutionOptions};
-use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Size, Tmux, Window};
-use crate::process;
-use crate::storage::{SnapshotError, write_snapshot_dir};
-use crate::tmux::{OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions, discover_socket_names};
+use crate::storage::{BackupNameError, SnapshotError, write_snapshot_dir};
+use crate::tmux_adapter::SubprocessError;
+use crate::tmux_adapter::{
+    OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions, discover_socket_names,
+};
+
+mod process;
 
 const BACKUP_ID_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 const CREATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
@@ -224,8 +226,9 @@ fn resolve_backup_id(
     timestamp: BackupTimestamp,
 ) -> Result<String, BackupError> {
     match requested_backup_id {
-        Some(backup_id) => crate::backup_name::normalize_backup_name(backup_id)
-            .map_err(BackupError::InvalidBackupName),
+        Some(backup_id) => {
+            crate::storage::normalize_backup_name(backup_id).map_err(BackupError::InvalidBackupName)
+        }
         None => Ok(timestamp.backup_id()),
     }
 }

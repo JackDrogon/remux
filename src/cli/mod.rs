@@ -4,15 +4,38 @@ use clap::{
     ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand,
     error::ErrorKind as ClapErrorKind,
 };
+use thiserror::Error;
 
 use crate::{
     BINARY_NAME,
     actions::{backup, compact, interactive, restore},
     config::{AppState, ExecutionOptions},
-    error::{AppError, AppResult},
-    observability, ui,
-    verbose_log::{self, VerboseLogLevel},
+    tmux_adapter::verbose_log::{self, VerboseLogLevel},
 };
+
+pub mod catalog_render;
+mod observability;
+pub mod ui;
+
+pub type AppResult<T> = Result<T, AppError>;
+
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error(transparent)]
+    Cli(#[from] CliError),
+    #[error(transparent)]
+    Config(#[from] crate::config::ConfigError),
+    #[error(transparent)]
+    Backup(#[from] backup::BackupError),
+    #[error(transparent)]
+    Restore(#[from] restore::RestoreError),
+    #[error(transparent)]
+    Compact(#[from] compact::CompactError),
+    #[error(transparent)]
+    Catalog(#[from] crate::storage::CatalogError),
+    #[error(transparent)]
+    Interactive(#[from] interactive::InteractiveError),
+}
 
 const CLI_AFTER_HELP: &str = concat!(
     "Examples:\n",
@@ -291,7 +314,7 @@ fn handle_list(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
     match action_arg {
         Some(backup_name) => {
             let entry = crate::storage::load_backup(config, backup_name)?;
-            println!("{}", crate::storage::render_detail(&entry));
+            println!("{}", catalog_render::render_detail(&entry));
             Ok(())
         }
         None => interactive_list(config),

@@ -1,9 +1,9 @@
 //! Catalog views over persisted backup directories.
 //!
-//! Listing, lookup, rendering, and deletion live together so every CLI path
-//! applies the same root-isolation and snapshot-decoding rules. The sort order
-//! is intentionally explicit because the interactive list and the default
-//! restore target use different stability requirements.
+//! Listing, lookup, and deletion live together so every CLI path applies the
+//! same root-isolation and snapshot-decoding rules. The sort order is
+//! intentionally explicit because the interactive list and the default restore
+//! target use different stability requirements.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -11,10 +11,9 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use thiserror::Error;
 
-use super::catalog_render;
+use super::backup_name::{BackupNameError, normalize_backup_name};
 use super::fs_ops;
 use super::snapshot::{self, SnapshotError};
-use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
 use crate::model::Tmux;
 
@@ -150,22 +149,6 @@ pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), Catalog
         path,
         source,
     })
-}
-
-pub fn no_backups_message() -> &'static str {
-    catalog_render::no_backups_message()
-}
-
-pub fn render_summary(backups: &[BackupEntry]) -> String {
-    catalog_render::render_summary(backups)
-}
-
-pub fn render_detail(entry: &BackupEntry) -> String {
-    catalog_render::render_detail(entry)
-}
-
-pub fn render_interactive_detail(entry: &BackupEntry) -> String {
-    catalog_render::render_interactive_detail(entry)
 }
 
 fn load_backups(

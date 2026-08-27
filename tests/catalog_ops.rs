@@ -4,6 +4,7 @@ use std::process::{Command, Output};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use remux::cli::catalog_render;
 use remux::config::{AppState, ExecutionOptions};
 use remux::storage;
 
@@ -45,7 +46,7 @@ fn named_socket_listing_is_isolated() {
         "named-socket catalog should expose only active-root backups"
     );
 
-    let summary_stdout = storage::render_summary(&named_backups);
+    let summary_stdout = catalog_render::render_summary(&named_backups);
     assert!(
         summary_stdout.contains("backup_20240102_120000"),
         "named-socket summary should include active-root backup only: {summary_stdout}"

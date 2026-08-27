@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use remux::model::{Pane, Session, Size, Tmux, Window};
-use remux::tmux::TmuxCommand;
+use remux::tmux_adapter::TmuxCommand;
 
 use self::tmux_fake::{FakeTmux, FakeTmuxOutput, FakeTmuxStep};
 

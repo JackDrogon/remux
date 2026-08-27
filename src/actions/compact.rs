@@ -1,10 +1,10 @@
 use thiserror::Error;
 
-use crate::backup_name::is_automatic_backup_id;
 use crate::config::AppState;
 use crate::storage::{
-    self, CatalogError, SnapshotError, compact::fingerprint, delete_backup, load_newest_backups,
-    read_schema_version, read_snapshot_dir, validate_pane_assets,
+    self, CatalogError, CompactFingerprint, SnapshotError, delete_backup, fingerprint,
+    is_automatic_backup_id, load_newest_backups, read_schema_version, read_snapshot_dir,
+    validate_pane_assets,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,7 +71,7 @@ pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome, CompactE
 
 fn fingerprint_for_readable_entry(
     entry: &storage::BackupEntry,
-) -> Result<storage::compact::CompactFingerprint, CompactError> {
+) -> Result<CompactFingerprint, CompactError> {
     let loaded = read_snapshot_dir(&entry.path)?;
     validate_pane_assets(&entry.path, &loaded.pane_assets)?;
     let (schema_major, schema_minor) = read_schema_version(&entry.path)?;

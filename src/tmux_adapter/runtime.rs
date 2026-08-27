@@ -1,4 +1,4 @@
-use super::{TmuxAdapter, tmux_command_prefix};
+use super::TmuxAdapter;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxRuntimeOptions {
@@ -32,4 +32,13 @@ impl TmuxRuntimeOptions {
             self.content_with_escape,
         )
     }
+}
+
+pub fn tmux_command_prefix(binary: &str, socket_name: Option<&str>) -> Vec<String> {
+    let mut prefix = vec![binary.to_string()];
+    if let Some(socket_name) = socket_name {
+        prefix.push("-L".to_string());
+        prefix.push(socket_name.to_string());
+    }
+    prefix
 }

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppState, ExecutionOptions};
-use remux::error::SubprocessError;
-use remux::tmux::{TmuxCommand, TmuxRuntimeOptions};
+use remux::tmux_adapter::SubprocessError;
+use remux::tmux_adapter::{TmuxCommand, TmuxRuntimeOptions};
 
 #[test]
 fn socket_prefix_is_inserted() {

@@ -13,14 +13,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
-use crate::backup_name::{BackupNameError, normalize_backup_name};
 use crate::config::AppState;
-use crate::error::SubprocessError;
 use crate::model::{Pane, Session, Tmux, Window};
 use crate::storage::{
-    LoadedSnapshot, PaneAsset, SnapshotError, read_snapshot_dir, validate_pane_asset,
+    BackupNameError, LoadedSnapshot, PaneAsset, SnapshotError, normalize_backup_name,
+    read_snapshot_dir, validate_pane_asset,
 };
-use crate::tmux::{TmuxClient, TmuxRuntimeOptions};
+use crate::tmux_adapter::SubprocessError;
+use crate::tmux_adapter::{TmuxClient, TmuxRuntimeOptions};
 
 const DEFAULT_SESSION_SIZE: (u32, u32) = (10, 10);
 const DUMMY_SESSION_SIZE: (u32, u32) = (10, 10);
