@@ -33,8 +33,8 @@ remux -L sockA backup backup_20240101_120000
 ```
 
 `remux compact` compares the two newest backups in the active catalog and deletes the older
-automatic timestamp backup when they match. The equality rules and field-by-field rationale are in
-[docs/compact.md](docs/compact.md).
+automatic timestamp backup when it is covered by the newer. The coverage rules and field-by-field
+rationale are in [docs/compact.md](docs/compact.md).
 
 Backups are written to `~/.remux/backup` by default. When `-L <socket-name>` is active, remux
 isolates data under `~/.remux/backup-sockets/<sanitized-socket-name>`.
@@ -110,7 +110,7 @@ CI-equivalent verification to pass on your machine.
 .github/workflows/ci.yml   Linux CI with tmux-backed integration coverage
 .config/nextest.toml       Repository-level nextest profiles
 assets/                    Default config assets bundled into the binary
-docs/                      Design notes, including compact equality
+docs/                      Design notes, including compact coverage
 src/                       remux library and binary entrypoint
 tests/                     Compatibility, CLI, restore, and live tmux integration tests
 ref/retmux/                Reference implementation used for compatibility guidance

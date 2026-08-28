@@ -43,6 +43,63 @@ impl CompactFingerprint {
             sessions,
         }
     }
+
+    pub(crate) fn is_covered_by(&self, newer: &Self) -> bool {
+        self.schema_major == newer.schema_major
+            && self.schema_minor == newer.schema_minor
+            && sorted_subset(
+                &self.sessions,
+                &newer.sessions,
+                |session| session.name.as_str(),
+                SessionPrint::is_covered_by,
+            )
+    }
+}
+
+impl SessionPrint {
+    fn is_covered_by(&self, newer: &Self) -> bool {
+        sorted_subset(
+            &self.windows,
+            &newer.windows,
+            |window| &window.window_id,
+            WindowPrint::is_covered_by,
+        )
+    }
+}
+
+impl WindowPrint {
+    fn is_covered_by(&self, newer: &Self) -> bool {
+        self.layout == newer.layout
+            && sorted_subset(
+                &self.panes,
+                &newer.panes,
+                |pane| &pane.pane_id,
+                |older, newer| older.root == newer.root,
+            )
+    }
+}
+
+fn sorted_subset<T, K: Ord + ?Sized>(
+    older: &[T],
+    newer: &[T],
+    key: impl Fn(&T) -> &K,
+    covered: impl Fn(&T, &T) -> bool,
+) -> bool {
+    let mut newer_index = 0;
+    for older_item in older {
+        let older_key = key(older_item);
+        while newer_index < newer.len() && key(&newer[newer_index]) < older_key {
+            newer_index += 1;
+        }
+        let Some(newer_item) = newer.get(newer_index) else {
+            return false;
+        };
+        if key(newer_item) != older_key || !covered(older_item, newer_item) {
+            return false;
+        }
+        newer_index += 1;
+    }
+    true
 }
 
 fn session_print(session: &Session) -> SessionPrint {
@@ -270,5 +327,49 @@ mod tests {
             CompactFingerprint::from_tmux(&left, 1, 1),
             CompactFingerprint::from_tmux(&right, 1, 1)
         );
+    }
+
+    #[test]
+    fn extra_session_or_window_is_covered() {
+        let mut older = Tmux::new("20240101_120000");
+        older.sessions = vec![session_with_windows(
+            "work",
+            vec![window_with_panes("work", 1, "layout-1", &[0])],
+        )];
+        let older_print = CompactFingerprint::from_tmux(&older, 1, 1);
+
+        let mut extra_session = older.clone();
+        extra_session.sessions.push(session_with_windows(
+            "extra",
+            vec![window_with_panes("extra", 1, "layout-x", &[0])],
+        ));
+        let extra_session_print = CompactFingerprint::from_tmux(&extra_session, 1, 1);
+        assert!(older_print.is_covered_by(&extra_session_print));
+        assert!(
+            !extra_session_print.is_covered_by(&older_print),
+            "closing a session must not cover the older backup"
+        );
+
+        let mut extra_window = older.clone();
+        extra_window.sessions[0]
+            .windows
+            .push(window_with_panes("work", 2, "layout-2", &[0]));
+        assert!(older_print.is_covered_by(&CompactFingerprint::from_tmux(&extra_window, 1, 1)));
+    }
+
+    #[test]
+    fn layout_or_schema_mismatch_is_not_covered() {
+        let mut older = Tmux::new("20240101_120000");
+        older.sessions = vec![session_with_windows(
+            "work",
+            vec![window_with_panes("work", 1, "layout-1", &[0])],
+        )];
+        let older_print = CompactFingerprint::from_tmux(&older, 1, 1);
+
+        let mut layout = older.clone();
+        layout.sessions[0].windows[0].layout = "layout-other".to_string();
+        assert!(!older_print.is_covered_by(&CompactFingerprint::from_tmux(&layout, 1, 1)));
+
+        assert!(!older_print.is_covered_by(&CompactFingerprint::from_tmux(&older, 1, 0)));
     }
 }

@@ -36,7 +36,7 @@ pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome> {
 
     let newer_fingerprint = fingerprint_for_readable_entry(newer)?;
     let older_fingerprint = fingerprint_for_readable_entry(older)?;
-    if newer_fingerprint != older_fingerprint {
+    if !older_fingerprint.is_covered_by(&newer_fingerprint) {
         tracing::info!(
             kept = %newer.backup_id,
             previous = %older.backup_id,
@@ -54,7 +54,7 @@ pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome> {
     tracing::info!(
         kept = %kept,
         removed = %deleted,
-        "compact finished: removed duplicate backup"
+        "compact finished: removed covered backup"
     );
     Ok(CompactOutcome::Removed { deleted, kept })
 }

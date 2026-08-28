@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::collections::BTreeMap;
+
 use remux::config::{AppState, ExecutionOptions};
-use remux::model::Process;
+use remux::model::{Pane, Process, Tmux, Window};
 use remux::storage;
 
 mod support;
@@ -36,7 +38,7 @@ fn compact_removes_older_automatic_duplicate() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(output.stderr.is_empty(), "stderr was {:?}", output.stderr);
     assert!(!older.exists(), "older automatic backup should be removed");
@@ -151,7 +153,7 @@ fn compact_ignores_cwd_and_child_processes() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(!older.exists(), "cwd and children must not block compact");
     assert!(newer_dir.exists(), "newer backup should remain");
@@ -250,7 +252,7 @@ fn compact_ignores_a_third_older_backup() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(oldest.exists(), "third backup must not be deleted");
     assert!(
@@ -301,7 +303,7 @@ fn compact_breaks_mtime_ties_by_backup_id_desc() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(
         !older_id.exists(),
@@ -342,7 +344,7 @@ fn compact_ignores_dot_prefixed_entries_even_if_metadata_fails() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(!older.exists(), "older automatic backup should be removed");
     assert!(newer.exists(), "newer backup should remain");
@@ -386,7 +388,7 @@ fn compact_ignores_dot_prefixed_write_temp_directories() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as 20240101_120500)\n"
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
     );
     assert!(!older.exists(), "older automatic backup should be removed");
     assert!(newer.exists(), "newer backup should remain");
@@ -420,7 +422,7 @@ fn compact_deletes_older_automatic_when_newer_is_named() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Removed duplicate backup 20240101_120000 (same as before-refactor)\n"
+        "Removed backup 20240101_120000 (covered by before-refactor)\n"
     );
     assert!(
         !automatic.exists(),
@@ -503,6 +505,159 @@ fn compact_is_isolated_to_the_active_socket() {
         !named_older.exists(),
         "active socket older duplicate should be removed"
     );
+}
+
+#[test]
+fn compact_removes_older_when_newer_adds_session() {
+    let temp_home = TempHome::new("extra-session");
+    let older = write_backup(
+        temp_home.path(),
+        None,
+        "20240101_120000",
+        "work",
+        Some(root(18421, "zsh", &["-zsh"])),
+        1,
+    );
+    let (mut tmux, pane_contents) = work_tmux_with_root("20240101_120500", 18421);
+    let (extra, extra_panes) = support::single_window_tmux(
+        "20240101_120500",
+        "other",
+        "2024-01-01 12:00:00",
+        &["/tmp/other"],
+    );
+    tmux.sessions.extend(extra.sessions);
+    let mut pane_contents = pane_contents;
+    pane_contents.extend(extra_panes);
+    let newer = write_tmux_backup(
+        temp_home.path(),
+        "20240101_120500",
+        &tmux,
+        &pane_contents,
+        2,
+    );
+
+    let output = run_binary(temp_home.path(), ["compact"]);
+    assert!(
+        output.status.success(),
+        "compact should succeed: {output:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Removed backup 20240101_120000 (covered by 20240101_120500)\n"
+    );
+    assert!(!older.exists(), "older subset backup should be removed");
+    assert!(newer.exists(), "newer superset backup should remain");
+}
+
+#[test]
+fn compact_removes_older_when_newer_adds_window() {
+    let temp_home = TempHome::new("extra-window");
+    let older = write_backup(
+        temp_home.path(),
+        None,
+        "20240101_120000",
+        "work",
+        Some(root(18421, "zsh", &["-zsh"])),
+        1,
+    );
+    let (mut tmux, mut pane_contents) = work_tmux_with_root("20240101_120500", 18421);
+    let mut extra_window = Window::new("work", 2);
+    extra_window.layout = "1901,120x40,0,0,1".to_string();
+    let mut extra_pane = Pane::new("work", 2, 0);
+    extra_pane.path = "/tmp/other".to_string();
+    pane_contents.insert(
+        extra_pane.pane_target().into_string(),
+        b"extra window\n".to_vec(),
+    );
+    extra_window.panes.push(extra_pane);
+    tmux.sessions[0].windows.push(extra_window);
+    let newer = write_tmux_backup(
+        temp_home.path(),
+        "20240101_120500",
+        &tmux,
+        &pane_contents,
+        2,
+    );
+
+    let output = run_binary(temp_home.path(), ["compact"]);
+    assert!(
+        output.status.success(),
+        "compact should succeed: {output:?}"
+    );
+    assert!(!older.exists(), "older subset backup should be removed");
+    assert!(newer.exists(), "newer superset backup should remain");
+}
+
+#[test]
+fn compact_keeps_both_when_newer_drops_session() {
+    let temp_home = TempHome::new("dropped-session");
+    let (mut older_tmux, older_panes) = work_tmux_with_root("20240101_120000", 18421);
+    let (extra, extra_panes) = support::single_window_tmux(
+        "20240101_120000",
+        "other",
+        "2024-01-01 12:00:00",
+        &["/tmp/other"],
+    );
+    older_tmux.sessions.extend(extra.sessions);
+    let mut older_panes = older_panes;
+    older_panes.extend(extra_panes);
+    let older = write_tmux_backup(
+        temp_home.path(),
+        "20240101_120000",
+        &older_tmux,
+        &older_panes,
+        1,
+    );
+    let (newer_tmux, newer_panes) = work_tmux_with_root("20240101_120500", 18421);
+    let newer = write_tmux_backup(
+        temp_home.path(),
+        "20240101_120500",
+        &newer_tmux,
+        &newer_panes,
+        2,
+    );
+
+    let output = run_binary(temp_home.path(), ["compact"]);
+    assert!(
+        output.status.success(),
+        "compact should succeed: {output:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Latest backups 20240101_120500 and 20240101_120000 differ, nothing to compact\n"
+    );
+    assert!(
+        older.exists(),
+        "older backup with extra session should remain"
+    );
+    assert!(newer.exists(), "newer backup should remain");
+}
+
+fn work_tmux_with_root(backup_id: &str, pid: u32) -> (Tmux, BTreeMap<String, Vec<u8>>) {
+    let (mut tmux, pane_contents) =
+        support::single_window_tmux(backup_id, "work", "2024-01-01 12:00:00", &["/tmp/work"]);
+    tmux.sessions[0].windows[0].panes[0].command_tree = Some(root(pid, "zsh", &["-zsh"]));
+    (tmux, pane_contents)
+}
+
+fn write_tmux_backup(
+    home_dir: &Path,
+    backup_id: &str,
+    tmux: &Tmux,
+    pane_contents: &BTreeMap<String, Vec<u8>>,
+    order: u64,
+) -> PathBuf {
+    let config =
+        AppState::load_from_home(home_dir).expect("runtime config should bootstrap temp HOME");
+    let backup_dir = config.active_backup_path().join(backup_id);
+    storage::write_snapshot_dir(&backup_dir, tmux, pane_contents)
+        .expect("snapshot directory should be written");
+    let modified = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + order);
+    fs::File::open(&backup_dir)
+        .expect("backup directory should open")
+        .set_modified(modified)
+        .expect("backup directory mtime should be set");
+    backup_dir
 }
 
 fn root(pid: u32, name: &str, argv: &[&str]) -> Process {

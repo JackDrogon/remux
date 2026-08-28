@@ -21,7 +21,7 @@ compact 和默认 restore 的「最新」是目录 mtime。`remux list` 不同�
 1. 不足两份：什么都不删。
 2. 较旧那份不是自动时间戳名（`YYYYMMDD_HHMMSS`）：直接停，不删，也**不**再验 pane。手起的名（`before-refactor`、`backup_20240101_120000`）是检查点，不是定时器产物。
 3. 较旧的是自动名：这时才校验**这两份**的 pane 文件存在且 hash 对得上（和 restore 同一标准）。pane 文本仍不进指纹。任一份校验失败则非零退出、什么都不删，避免新份已经缺 pane、却把旧的完好自动备份删掉。
-4. 校验通过后比指纹。相同：删较旧的，留较新的。不同：两份都留。
+4. 校验通过后比指纹。较旧被较新覆盖（相同，或较新只多了 session / window / pane，共有窗口的 layout 和根进程不变）：删较旧的，留较新的。较新缺了较旧里的东西（关了 session/window），或共有窗口 layout / 根进程变了：两份都留。
 
 只比这一对。不会顺着历史做 run-length 压缩，也不会跨 socket 比较。`-L sockA` 只看 `~/.remux/backup-sockets/<sockA>/`。
 
@@ -124,7 +124,7 @@ scrollback。idle 时几乎每次都变。留下的新备份里仍有最新文�
 
 `backup_20240101_120000`、`sprint_demo` 都不是自动名。较旧的那份若是这种名字，compact 直接停，不比指纹，也不验 pane。
 
-反过来：最新的是手起的名、较旧的是自动时间戳，且指纹相同，会删掉那份自动备份，留下手起的名。
+反过来：最新的是手起的名、较旧的是自动时间戳，且较旧被较新覆盖，会删掉那份自动备份，留下手起的名。
 
 ## 和 restore 的关系
 
@@ -138,8 +138,8 @@ restore 重建 session / window / layout / pane / cwd / 文本，**不**启动 `
 | --- | --- | --- |
 | 不足两份 | 0 | `Need at least two backups to compact` |
 | 较旧的不是自动名 | 0 | `Previous backup {name} is not an automatic backup` |
-| 指纹不同 | 0 | `Latest backups {kept} and {previous} differ, nothing to compact` |
-| 已删除较旧自动备份 | 0 | `Removed duplicate backup {old} (same as {new})` |
+| 较旧未被较新覆盖 | 0 | `Latest backups {kept} and {previous} differ, nothing to compact` |
+| 已删除较旧自动备份（相同或被覆盖） | 0 | `Removed backup {old} (covered by {new})` |
 
 较旧的是自动备份并进入比较时：读 snapshot、pane 文件缺失/损坏、或删目录失败才非零。较旧的是手起的名：退出码 0，不验 pane。
 

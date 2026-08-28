@@ -116,7 +116,7 @@ enum Commands {
         #[arg(value_name = "name", help = "Delete the named backup directly")]
         name: Option<String>,
     },
-    #[command(about = "Remove the previous backup when it matches the latest")]
+    #[command(about = "Remove the previous backup when it is covered by the latest")]
     Compact,
     #[command(about = "Restore tmux sessions from backup")]
     Restore {
@@ -368,7 +368,7 @@ fn do_compact(config: &AppState) -> Result<()> {
         }
         compact::CompactOutcome::Removed { deleted, kept } => {
             emit_line(format!(
-                "Removed duplicate backup {deleted} (same as {kept})"
+                "Removed backup {deleted} (covered by {kept})"
             ))?;
         }
     }

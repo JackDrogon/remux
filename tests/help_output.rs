@@ -24,7 +24,7 @@ fn help_shows_branding_commands_and_footer() {
         "delete",
         "Delete backups",
         "compact",
-        "Remove the previous backup when it matches the latest",
+        "Remove the previous backup when it is covered by the latest",
         "restore",
         "Restore tmux sessions from backup",
         "Options:",
