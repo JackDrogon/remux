@@ -39,7 +39,7 @@ pub fn single_window_tmux(
         pane.size = Size::new(120, 40);
         pane.path = (*pane_path).to_string();
         pane_contents.insert(
-            pane.pane_target(),
+            pane.pane_target().into_string(),
             format!("content for {pane_path}\n").into_bytes(),
         );
         window.panes.push(pane);

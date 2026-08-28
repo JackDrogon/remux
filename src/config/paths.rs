@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::{CONFIG_FILE_NAME, HOME_DIR_NAME};
 
-use super::{AppConfig, ConfigError};
+use super::AppConfig;
+use crate::error::{Config as ConfigError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
@@ -12,9 +13,9 @@ pub struct ConfigPaths {
 }
 
 impl ConfigPaths {
-    pub fn from_env() -> Result<Self, ConfigError> {
+    pub fn from_env() -> Result<Self> {
         let Some(home_dir) = env::var_os("HOME") else {
-            return Err(ConfigError::HomeDirNotFound);
+            return Err(ConfigError::HomeDirNotFound.into());
         };
 
         Ok(Self::from_home(PathBuf::from(home_dir)))

@@ -277,7 +277,7 @@ fn assert_contains(haystack: &str, needle: &str) {
 
 fn write_backup(backup_root: &Path, backup_name: &str, tmux: Tmux, pane_files: &[(&str, &str)]) {
     let backup_dir = backup_root.join(backup_name);
-    fs::create_dir_all(&backup_dir).expect("should create backup directory");
+    fs::create_dir_all(backup_root).expect("should create backup catalog root");
     let pane_contents = pane_files
         .iter()
         .map(|(pane_id, content)| (pane_id.to_string(), content.as_bytes().to_vec()))
@@ -502,6 +502,7 @@ case "$command_name" in
     if [[ "$server" == "1" ]]; then
       exit 0
     fi
+    print -r -- 'no server running on fake' >&2
     exit 1
     ;;
   has-session)

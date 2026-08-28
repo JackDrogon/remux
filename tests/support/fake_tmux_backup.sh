@@ -16,6 +16,7 @@ fi
 case "${1:-}" in
   list-sessions)
     if [ "${REMUX_FAKE_NO_SERVER:-0}" = "1" ]; then
+      printf 'no server running on fake\n' >&2
       exit 1
     fi
     printf 'work:=:(120,40):=:0\n'

@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use clap::error::ErrorKind;
-use remux::cli::{Action, parse_cli_args};
+use remux::cli::{CliCommand, parse_cli_args};
 
 #[test]
 fn socket_can_appear_before_or_after_action() {
@@ -12,8 +12,12 @@ fn socket_can_appear_before_or_after_action() {
 
     assert_eq!(before.socket_name.as_deref(), Some("sockA"));
     assert_eq!(before.verbose_log_level, 0);
-    assert_eq!(before.action, Action::Backup);
-    assert_eq!(before.action_arg.as_deref(), Some("backup_20240101_120000"));
+    assert_eq!(
+        before.command,
+        CliCommand::Backup {
+            name: Some("backup_20240101_120000".to_string())
+        }
+    );
     assert_eq!(before, after);
 }
 
@@ -24,36 +28,50 @@ fn subcommands_map_cleanly_to_internal_actions() {
 
     assert_eq!(parsed.socket_name.as_deref(), Some("sockA"));
     assert_eq!(parsed.verbose_log_level, 0);
-    assert_eq!(parsed.action, Action::Backup);
-    assert_eq!(parsed.action_arg.as_deref(), Some("named_backup"));
+    assert_eq!(
+        parsed.command,
+        CliCommand::Backup {
+            name: Some("named_backup".to_string())
+        }
+    );
 
     let interactive_restore = parse_cli_args(["remux", "restore", "--interactive"])
         .expect("interactive restore should parse");
-    assert_eq!(interactive_restore.action, Action::InteractiveRestore);
+    assert_eq!(interactive_restore.command, CliCommand::InteractiveRestore);
 
     let named_restore = parse_cli_args(["remux", "restore", "backup_20240101_120000"])
         .expect("named restore should parse");
-    assert_eq!(named_restore.action, Action::Restore);
     assert_eq!(
-        named_restore.action_arg.as_deref(),
-        Some("backup_20240101_120000")
+        named_restore.command,
+        CliCommand::Restore {
+            name: Some("backup_20240101_120000".to_string())
+        }
     );
 
     let verbose = parse_cli_args(["remux", "-v", "backup", "named_backup"])
         .expect("tmux verbose should parse globally");
     assert_eq!(verbose.verbose_log_level, 1);
-    assert_eq!(verbose.action, Action::Backup);
+    assert_eq!(
+        verbose.command,
+        CliCommand::Backup {
+            name: Some("named_backup".to_string())
+        }
+    );
 
     let verbose_twice = parse_cli_args(["remux", "-vv", "backup", "named_backup"])
         .expect("multiple tmux verbose flags should parse globally");
     assert_eq!(verbose_twice.verbose_log_level, 2);
-    assert_eq!(verbose_twice.action, Action::Backup);
+    assert_eq!(
+        verbose_twice.command,
+        CliCommand::Backup {
+            name: Some("named_backup".to_string())
+        }
+    );
 
     let compact =
         parse_cli_args(["remux", "-L", "sockA", "compact"]).expect("compact command should parse");
-    assert_eq!(compact.action, Action::Compact);
+    assert_eq!(compact.command, CliCommand::Compact);
     assert_eq!(compact.socket_name.as_deref(), Some("sockA"));
-    assert_eq!(compact.action_arg, None);
 
     let backup_compact = parse_cli_args(["remux", "backup", "--compact"]).unwrap_err();
     assert_eq!(backup_compact.kind(), ErrorKind::UnknownArgument);
@@ -110,7 +128,7 @@ fn no_action_is_reported_as_missing_required_input() {
     let error = parse_cli_args(["remux"]).unwrap_err();
     assert_eq!(
         error.kind(),
-        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand,
     );
     assert!(
         error
@@ -171,7 +189,7 @@ fn clap_stderr_is_clean_and_brief() {
     );
     assert_stable_stderr(
         &stderr,
-        "parse errors should not render color-eyre report frames",
+        "parse errors should not render diagnostic report frames",
     );
 }
 

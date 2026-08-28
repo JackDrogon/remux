@@ -56,6 +56,27 @@ need more verbosity during debugging. Console color is `auto` (ANSI when stderr 
 - shell history for each pane
 - tmux buffer stacks
 
+## How remux talks to tmux
+
+remux runs tmux as a synchronous subprocess and waits until that process exits. It does not impose
+its own command deadline: a hung tmux hangs remux. The adapter has no timeout API and no timed-out
+error. A wait loop that only polls exit status would stall on a full stdout pipe and mis-report
+large `capture-pane` output as a timeout.
+
+## Errors
+
+Argument parsing is clap's job: it prints and exits. After that, remux is a small CLI whose errors
+are not a second control plane: construct a typed code for the fault, add context so a human can see
+where it happened, print one report, and stop. Do not reclassify failures by errno, source, or
+context in order to pick a "better" code. Fail clearly and leave the machine consistent. remux does
+not publish a partial snapshot. Staging directories are created with exclusive `mkdir` among
+cooperating remux instances (a name collision retries; remux never deletes a path it did not just
+create). The tree is landed with `renameat2(RENAME_NOREPLACE)` so an occupied backup id is not
+replaced. An unpublished staging directory is removed on a handled failure before land; after a
+successful land, later fsync errors do not delete the published backup, and the error report says
+the snapshot was already published. A crash or power loss may still leave temps. The operator reads
+the report and acts.
+
 ## Development
 
 ```bash

@@ -46,12 +46,12 @@ fn help_shows_branding_commands_and_footer() {
 fn no_args_now_show_help_like_a_clap_cli() {
     let temp_home = TempHome::new("help-no-args");
     let output = run_binary(temp_home.path(), []);
-    assert_success(&output, "no-arg invocation should now show help");
-
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stdout.contains("Usage: remux [OPTIONS] <COMMAND>"),
-        "expected help output when no args are supplied, got:\n{stdout}"
+        stdout.contains("Usage: remux [OPTIONS] <COMMAND>")
+            || stderr.contains("Usage: remux [OPTIONS] <COMMAND>"),
+        "expected clap help when no args are supplied, stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 
     let config_file = ConfigPaths::from_home(temp_home.path()).config_file;

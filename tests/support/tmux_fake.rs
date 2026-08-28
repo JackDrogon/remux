@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::Path;
 
-use remux::tmux_adapter::SubprocessError;
 use remux::tmux_adapter::{TMUX_BINARY, TmuxAdapter, TmuxClient, TmuxCommand};
+use remux::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeTmuxOutput {
@@ -19,7 +19,7 @@ pub enum FakeTmuxOutput {
 #[derive(Debug)]
 pub struct FakeTmuxStep {
     command: TmuxCommand,
-    result: Result<FakeTmuxOutput, SubprocessError>,
+    result: Result<FakeTmuxOutput>,
 }
 
 impl FakeTmuxStep {
@@ -30,7 +30,7 @@ impl FakeTmuxStep {
         }
     }
 
-    pub fn err(command: TmuxCommand, error: SubprocessError) -> Self {
+    pub fn err(command: TmuxCommand, error: Error) -> Self {
         Self {
             command,
             result: Err(error),
@@ -79,7 +79,7 @@ impl FakeTmux {
         self.steps.borrow().len()
     }
 
-    fn consume(&self, command: TmuxCommand) -> Result<FakeTmuxOutput, SubprocessError> {
+    fn consume(&self, command: TmuxCommand) -> Result<FakeTmuxOutput> {
         self.recorded_commands.borrow_mut().push(command.clone());
         let mut steps = self.steps.borrow_mut();
         let Some(step) = steps.pop_front() else {
@@ -100,35 +100,35 @@ impl FakeTmux {
         step.result
     }
 
-    fn consume_unit(&self, command: TmuxCommand) -> Result<(), SubprocessError> {
+    fn consume_unit(&self, command: TmuxCommand) -> Result<()> {
         match self.consume(command)? {
             FakeTmuxOutput::Unit => Ok(()),
             other => panic!("expected unit fake tmux output, got {other:?}"),
         }
     }
 
-    fn consume_bool(&self, command: TmuxCommand) -> Result<bool, SubprocessError> {
+    fn consume_bool(&self, command: TmuxCommand) -> Result<bool> {
         match self.consume(command)? {
             FakeTmuxOutput::Bool(value) => Ok(value),
             other => panic!("expected bool fake tmux output, got {other:?}"),
         }
     }
 
-    fn consume_lines(&self, command: TmuxCommand) -> Result<Vec<String>, SubprocessError> {
+    fn consume_lines(&self, command: TmuxCommand) -> Result<Vec<String>> {
         match self.consume(command)? {
             FakeTmuxOutput::Lines(lines) => Ok(lines),
             other => panic!("expected line fake tmux output, got {other:?}"),
         }
     }
 
-    fn consume_text(&self, command: TmuxCommand) -> Result<String, SubprocessError> {
+    fn consume_text(&self, command: TmuxCommand) -> Result<String> {
         match self.consume(command)? {
             FakeTmuxOutput::Text(text) => Ok(text),
             other => panic!("expected text fake tmux output, got {other:?}"),
         }
     }
 
-    fn consume_bytes(&self, command: TmuxCommand) -> Result<Vec<u8>, SubprocessError> {
+    fn consume_bytes(&self, command: TmuxCommand) -> Result<Vec<u8>> {
         match self.consume(command)? {
             FakeTmuxOutput::Bytes(bytes) => Ok(bytes),
             other => panic!("expected byte fake tmux output, got {other:?}"),
@@ -137,37 +137,28 @@ impl FakeTmux {
 }
 
 impl TmuxClient for FakeTmux {
-    fn has_server(&self) -> Result<bool, SubprocessError> {
+    fn has_server(&self) -> Result<bool> {
         self.consume_bool(TmuxCommand::ListSessions)
     }
 
-    fn list_sessions(&self) -> Result<Vec<String>, SubprocessError> {
+    fn list_sessions(&self) -> Result<Vec<String>> {
         self.consume_lines(TmuxCommand::ListSessions)
     }
 
-    fn list_windows(&self, session_name: &str) -> Result<Vec<String>, SubprocessError> {
+    fn list_windows(&self, session_name: &str) -> Result<Vec<String>> {
         self.consume_lines(TmuxCommand::ListWindows {
             session_name: session_name.to_string(),
         })
     }
 
-    fn list_panes(
-        &self,
-        session_name: &str,
-        window_index: usize,
-    ) -> Result<Vec<String>, SubprocessError> {
+    fn list_panes(&self, session_name: &str, window_index: usize) -> Result<Vec<String>> {
         self.consume_lines(TmuxCommand::ListPanes {
             session_name: session_name.to_string(),
             window_index,
         })
     }
 
-    fn create_session(
-        &self,
-        session_name: &str,
-        width: u32,
-        height: u32,
-    ) -> Result<(), SubprocessError> {
+    fn create_session(&self, session_name: &str, width: u32, height: u32) -> Result<()> {
         self.consume_unit(TmuxCommand::CreateSession {
             session_name: session_name.to_string(),
             width,
@@ -175,75 +166,66 @@ impl TmuxClient for FakeTmux {
         })
     }
 
-    fn kill_session(&self, session_name: &str) -> Result<bool, SubprocessError> {
+    fn kill_session(&self, session_name: &str) -> Result<bool> {
         self.consume_bool(TmuxCommand::KillSession {
             session_name: session_name.to_string(),
         })
     }
 
-    fn capture_pane(&self, pane_id: &str) -> Result<String, SubprocessError> {
+    fn capture_pane(&self, pane_id: &str) -> Result<String> {
         self.consume_text(TmuxCommand::CapturePane {
             pane_id: pane_id.to_string(),
             include_escape: self.include_escape,
         })
     }
 
-    fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>, SubprocessError> {
+    fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>> {
         self.consume_bytes(TmuxCommand::CapturePane {
             pane_id: pane_id.to_string(),
             include_escape: self.include_escape,
         })
     }
 
-    fn show_option(&self, option: &str) -> Result<String, SubprocessError> {
+    fn show_option(&self, option: &str) -> Result<String> {
         self.consume_text(TmuxCommand::ShowOption {
             option: option.to_string(),
         })
     }
 
-    fn has_session(&self, session_name: &str) -> Result<bool, SubprocessError> {
+    fn has_session(&self, session_name: &str) -> Result<bool> {
         self.consume_bool(TmuxCommand::HasSession {
             session_name: session_name.to_string(),
         })
     }
 
-    fn clear_pane(&self, pane_id: &str) -> Result<(), SubprocessError> {
+    fn clear_pane(&self, pane_id: &str) -> Result<()> {
         self.consume_unit(TmuxCommand::ClearPane {
             pane_id: pane_id.to_string(),
         })
     }
 
-    fn send_keys(&self, target: &str, keys: &str) -> Result<(), SubprocessError> {
+    fn send_keys(&self, target: &str, keys: &str) -> Result<()> {
         self.consume_unit(TmuxCommand::SendKeys {
             target: target.to_string(),
             keys: keys.to_string(),
         })
     }
 
-    fn create_empty_window(
-        &self,
-        session_name: &str,
-        base_index: usize,
-    ) -> Result<(), SubprocessError> {
+    fn create_empty_window(&self, session_name: &str, base_index: usize) -> Result<()> {
         self.consume_unit(TmuxCommand::NewEmptyWindow {
             session_name: session_name.to_string(),
             base_index,
         })
     }
 
-    fn move_window(&self, source: &str, target: &str) -> Result<(), SubprocessError> {
+    fn move_window(&self, source: &str, target: &str) -> Result<()> {
         self.consume_unit(TmuxCommand::MoveWindow {
             source: source.to_string(),
             target: target.to_string(),
         })
     }
 
-    fn rename_window(
-        &self,
-        session_name: &str,
-        window_id: usize,
-        name: &str,
-    ) -> Result<(), SubprocessError> {
+    fn rename_window(&self, session_name: &str, window_id: usize, name: &str) -> Result<()> {
         self.consume_unit(TmuxCommand::RenameWindow {
             session_name: session_name.to_string(),
             window_id,
@@ -251,19 +233,14 @@ impl TmuxClient for FakeTmux {
         })
     }
 
-    fn select_window(&self, session_name: &str, window_id: usize) -> Result<(), SubprocessError> {
+    fn select_window(&self, session_name: &str, window_id: usize) -> Result<()> {
         self.consume_unit(TmuxCommand::SelectWindow {
             session_name: session_name.to_string(),
             window_id,
         })
     }
 
-    fn split_window(
-        &self,
-        session_name: &str,
-        window_id: usize,
-        pane_min_id: usize,
-    ) -> Result<(), SubprocessError> {
+    fn split_window(&self, session_name: &str, window_id: usize, pane_min_id: usize) -> Result<()> {
         self.consume_unit(TmuxCommand::SplitWindow {
             session_name: session_name.to_string(),
             window_id,
@@ -271,12 +248,7 @@ impl TmuxClient for FakeTmux {
         })
     }
 
-    fn select_layout(
-        &self,
-        session_name: &str,
-        window_id: usize,
-        layout: &str,
-    ) -> Result<(), SubprocessError> {
+    fn select_layout(&self, session_name: &str, window_id: usize, layout: &str) -> Result<()> {
         self.consume_unit(TmuxCommand::SelectLayout {
             session_name: session_name.to_string(),
             window_id,
@@ -284,7 +256,7 @@ impl TmuxClient for FakeTmux {
         })
     }
 
-    fn restore_pane_content(&self, pane_id: &str, filename: &Path) -> Result<(), SubprocessError> {
+    fn restore_pane_content(&self, pane_id: &str, filename: &Path) -> Result<()> {
         self.consume_unit(TmuxCommand::LoadContent {
             pane_id: pane_id.to_string(),
             filename: filename.to_string_lossy().into_owned(),

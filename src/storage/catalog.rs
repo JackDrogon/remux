@@ -9,13 +9,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use thiserror::Error;
-
-use super::backup_name::{BackupNameError, normalize_backup_name};
+use super::backup_name::normalize_backup_name;
 use super::fs_ops;
-use super::snapshot::{self, SnapshotError};
+use super::snapshot;
 use crate::config::AppState;
 use crate::model::Tmux;
+use crate::{Catalog as CatalogError, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackupSortOrder {
@@ -37,41 +36,7 @@ pub struct BackupEntry {
     pub snapshot: Tmux,
 }
 
-#[derive(Debug, Error)]
-pub enum CatalogError {
-    #[error(transparent)]
-    InvalidBackupName(#[from] BackupNameError),
-    #[error("failed to read backup catalog {}: {source}", path.display())]
-    ReadCatalog {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to read backup metadata {}: {source}", path.display())]
-    ReadMetadata {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to read backup snapshot {}: {source}", path.display())]
-    ReadSnapshot {
-        path: PathBuf,
-        #[source]
-        source: SnapshotError,
-    },
-    #[error("cannot find given backup name:{name} under {}", root.display())]
-    MissingBackupName { name: String, root: PathBuf },
-    #[error("backup dir is empty under {}, nothing to resolve", root.display())]
-    NoBackups { root: PathBuf },
-    #[error("failed to delete backup {}: {source}", path.display())]
-    DeleteBackup {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-}
-
-pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
+pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>> {
     tracing::debug!(root = %config.active_backup_path().display(), "listing full backups");
     load_backups(
         config,
@@ -80,7 +45,7 @@ pub fn list_backups(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError>
     )
 }
 
-pub fn list_backups_for_listing(config: &AppState) -> Result<Vec<BackupEntry>, CatalogError> {
+pub fn list_backups_for_listing(config: &AppState) -> Result<Vec<BackupEntry>> {
     tracing::debug!(root = %config.active_backup_path().display(), "listing summary backups");
     load_backups(
         config,
@@ -89,26 +54,22 @@ pub fn list_backups_for_listing(config: &AppState) -> Result<Vec<BackupEntry>, C
     )
 }
 
-pub fn load_backup(config: &AppState, backup_name: &str) -> Result<BackupEntry, CatalogError> {
-    let normalized_name =
-        normalize_backup_name(backup_name).map_err(CatalogError::InvalidBackupName)?;
+pub fn load_backup(config: &AppState, backup_name: &str) -> Result<BackupEntry> {
+    let normalized_name = normalize_backup_name(backup_name)?;
     let root = config.active_backup_path();
     tracing::info!(backup_name = %normalized_name, root = %root.display(), "loading backup entry");
     read_backup_entry_in_root(&root, &normalized_name)
 }
 
-pub fn latest_backup(config: &AppState) -> Result<BackupEntry, CatalogError> {
+pub fn latest_backup(config: &AppState) -> Result<BackupEntry> {
     let root = config.active_backup_path();
-    list_backups(config)?
+    Ok(list_backups(config)?
         .into_iter()
         .next()
-        .ok_or(CatalogError::NoBackups { root })
+        .ok_or(CatalogError::NoBackups { root })?)
 }
 
-pub fn load_newest_backups(
-    config: &AppState,
-    limit: usize,
-) -> Result<Vec<BackupEntry>, CatalogError> {
+pub fn load_newest_backups(config: &AppState, limit: usize) -> Result<Vec<BackupEntry>> {
     let root = config.active_backup_path();
     tracing::debug!(
         root = %root.display(),
@@ -132,30 +93,52 @@ pub fn load_newest_backups(
         .collect()
 }
 
-pub fn resolve_restore_target(
-    config: &AppState,
-    requested_name: Option<&str>,
-) -> Result<String, CatalogError> {
+pub fn resolve_restore_target(config: &AppState, requested_name: Option<&str>) -> Result<String> {
+    resolve_restore_target_in_root(&config.active_backup_path(), requested_name)
+}
+
+pub fn resolve_restore_target_in_root(root: &Path, requested_name: Option<&str>) -> Result<String> {
     match requested_name {
-        Some(requested_name) => Ok(load_backup(config, requested_name)?.backup_id),
-        _ => Ok(latest_backup(config)?.backup_id),
+        Some(requested_name) => {
+            let normalized = normalize_backup_name(requested_name)?;
+            let path = root.join(&normalized);
+            let metadata = fs_ops::optional_metadata(&path, |path, source| {
+                CatalogError::ReadMetadata { path, source }
+            })?;
+            match metadata {
+                Some(metadata) if metadata.is_dir() => Ok(normalized),
+                _ => Err(missing_backup_name(root, &normalized).into()),
+            }
+        }
+        None => {
+            let mut directories = list_backup_directories(root)?;
+            sort_backup_directories(&mut directories);
+            Ok(directories
+                .into_iter()
+                .next()
+                .map(|directory| directory.backup_id)
+                .ok_or_else(|| CatalogError::NoBackups {
+                    root: root.to_path_buf(),
+                })?)
+        }
     }
 }
 
-pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<(), CatalogError> {
+pub fn delete_backup(config: &AppState, backup_name: &str) -> Result<()> {
     let entry = load_backup(config, backup_name)?;
     tracing::info!(backup_name = %entry.backup_id, path = %entry.path.display(), "deleting backup entry");
     fs_ops::remove_dir_all(&entry.path, |path, source| CatalogError::DeleteBackup {
         path,
         source,
-    })
+    })?;
+    Ok(())
 }
 
 fn load_backups(
     config: &AppState,
     sort_order: BackupSortOrder,
     load_mode: SnapshotLoadMode,
-) -> Result<Vec<BackupEntry>, CatalogError> {
+) -> Result<Vec<BackupEntry>> {
     list_backups_in_root(&config.active_backup_path(), sort_order, load_mode)
 }
 
@@ -165,15 +148,10 @@ struct BackupDirectory {
     metadata: std::fs::Metadata,
 }
 
-fn list_backup_directories(root: &Path) -> Result<Vec<BackupDirectory>, CatalogError> {
-    if !root.is_dir() {
+fn list_backup_directories(root: &Path) -> Result<Vec<BackupDirectory>> {
+    let Some(entries) = open_catalog_root(root)? else {
         return Ok(Vec::new());
-    }
-
-    let entries = fs_ops::read_dir(root, |path, source| CatalogError::ReadCatalog {
-        path,
-        source,
-    })?;
+    };
 
     let mut directories = Vec::new();
     for entry in entries {
@@ -208,15 +186,10 @@ fn list_backups_in_root(
     root: &Path,
     sort_order: BackupSortOrder,
     load_mode: SnapshotLoadMode,
-) -> Result<Vec<BackupEntry>, CatalogError> {
-    if !root.is_dir() {
+) -> Result<Vec<BackupEntry>> {
+    let Some(entries) = open_catalog_root(root)? else {
         return Ok(Vec::new());
-    }
-
-    let entries = fs_ops::read_dir(root, |path, source| CatalogError::ReadCatalog {
-        path,
-        source,
-    })?;
+    };
 
     let mut backups = Vec::new();
     for entry in entries {
@@ -233,7 +206,7 @@ fn list_backups_in_root(
     Ok(backups)
 }
 
-fn read_backup_entry_in_root(root: &Path, backup_id: &str) -> Result<BackupEntry, CatalogError> {
+fn read_backup_entry_in_root(root: &Path, backup_id: &str) -> Result<BackupEntry> {
     let path = root.join(backup_id);
     let metadata = fs_ops::metadata(&path, |path, source| match source.kind() {
         io::ErrorKind::NotFound => missing_backup_name(root, backup_id),
@@ -241,7 +214,7 @@ fn read_backup_entry_in_root(root: &Path, backup_id: &str) -> Result<BackupEntry
     })?;
 
     if !metadata.is_dir() {
-        return Err(missing_backup_name(root, backup_id));
+        return Err(missing_backup_name(root, backup_id).into());
     }
 
     read_backup_entry(
@@ -257,7 +230,7 @@ fn read_backup_entry(
     backup_id: String,
     metadata: std::fs::Metadata,
     load_mode: SnapshotLoadMode,
-) -> Result<BackupEntry, CatalogError> {
+) -> Result<BackupEntry> {
     let snapshot = read_snapshot_for_entry(&path, load_mode)?;
 
     let modified_at = metadata
@@ -280,7 +253,7 @@ fn read_backup_entry(
 fn read_catalog_entry(
     entry: std::fs::DirEntry,
     load_mode: SnapshotLoadMode,
-) -> Result<Option<BackupEntry>, CatalogError> {
+) -> Result<Option<BackupEntry>> {
     let Some(directory) = listed_backup_directory(entry)? else {
         return Ok(None);
     };
@@ -293,9 +266,7 @@ fn read_catalog_entry(
     .map(Some)
 }
 
-fn listed_backup_directory(
-    entry: std::fs::DirEntry,
-) -> Result<Option<BackupDirectory>, CatalogError> {
+fn listed_backup_directory(entry: std::fs::DirEntry) -> Result<Option<BackupDirectory>> {
     let backup_id = entry.file_name().to_string_lossy().into_owned();
     if !is_listed_backup_name(&backup_id) {
         return Ok(None);
@@ -323,6 +294,65 @@ fn is_listed_backup_name(backup_id: &str) -> bool {
     !backup_id.starts_with('.')
 }
 
+/// Whether `path` already occupies a backup-id slot. A dangling symlink counts.
+pub(crate) fn backup_id_slot_is_occupied(path: &Path) -> Result<bool> {
+    match fs_ops::optional_symlink_metadata(path, |path, source| CatalogError::ReadMetadata {
+        path,
+        source,
+    })? {
+        Some(_) => Ok(true),
+        None => Ok(false),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CatalogRoot {
+    Missing,
+    Directory,
+    NotDirectory,
+}
+
+fn observe_catalog_root(root: &Path) -> Result<CatalogRoot> {
+    let Some(entry) = fs_ops::optional_symlink_metadata(root, |path, source| {
+        CatalogError::ReadCatalog { path, source }
+    })?
+    else {
+        return Ok(CatalogRoot::Missing);
+    };
+
+    if entry.file_type().is_symlink() {
+        return match fs_ops::optional_metadata(root, |path, source| CatalogError::ReadCatalog {
+            path,
+            source,
+        })? {
+            Some(target) if target.is_dir() => Ok(CatalogRoot::Directory),
+            Some(_) | None => Ok(CatalogRoot::NotDirectory),
+        };
+    }
+
+    if entry.is_dir() {
+        Ok(CatalogRoot::Directory)
+    } else {
+        Ok(CatalogRoot::NotDirectory)
+    }
+}
+
+fn open_catalog_root(root: &Path) -> Result<Option<std::fs::ReadDir>> {
+    match observe_catalog_root(root)? {
+        CatalogRoot::Missing => Ok(None),
+        CatalogRoot::NotDirectory => Err(CatalogError::RootNotDirectory {
+            path: root.to_path_buf(),
+        }
+        .into()),
+        CatalogRoot::Directory => {
+            // A race after this observation stays ReadCatalog.
+            Ok(Some(fs_ops::read_dir(root, |path, source| {
+                CatalogError::ReadCatalog { path, source }
+            })?))
+        }
+    }
+}
+
 fn sort_backups(backups: &mut [BackupEntry], sort_order: BackupSortOrder) {
     match sort_order {
         BackupSortOrder::ModifiedAtDesc => backups.sort_by(|left, right| {
@@ -344,13 +374,117 @@ fn missing_backup_name(root: &Path, backup_id: &str) -> CatalogError {
     }
 }
 
-fn read_snapshot_for_entry(path: &Path, load_mode: SnapshotLoadMode) -> Result<Tmux, CatalogError> {
+fn read_snapshot_for_entry(path: &Path, load_mode: SnapshotLoadMode) -> Result<Tmux> {
+    let directory = snapshot::SnapshotDirectory::new(path);
     match load_mode {
-        SnapshotLoadMode::Full => snapshot::read_snapshot_dir(path).map(|loaded| loaded.tmux),
-        SnapshotLoadMode::Summary => snapshot::read_snapshot_summary_dir(path),
+        SnapshotLoadMode::Full => Ok(directory.read_full()?.tmux),
+        SnapshotLoadMode::Summary => directory.read_summary(),
     }
-    .map_err(|source| CatalogError::ReadSnapshot {
-        path: path.to_path_buf(),
-        source,
-    })
+}
+
+#[cfg(test)]
+mod occupancy_tests {
+    use super::*;
+    use crate::Code;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn scratch(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "remux-catalog-{label}-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("scratch");
+        path
+    }
+
+    fn cleanup(path: &Path) {
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn catalog_root_three_states() {
+        let base = scratch("root");
+        let missing = base.join("missing");
+        assert_eq!(
+            observe_catalog_root(&missing).expect("missing root"),
+            CatalogRoot::Missing
+        );
+
+        let dir = base.join("dir");
+        fs::create_dir(&dir).expect("dir");
+        assert_eq!(
+            observe_catalog_root(&dir).expect("directory root"),
+            CatalogRoot::Directory
+        );
+
+        let file = base.join("file");
+        fs::write(&file, b"x").expect("file");
+        assert_eq!(
+            observe_catalog_root(&file).expect("file root"),
+            CatalogRoot::NotDirectory
+        );
+
+        let dangling = base.join("dangling");
+        std::os::unix::fs::symlink(base.join("nope"), &dangling).expect("dangling");
+        assert_eq!(
+            observe_catalog_root(&dangling).expect("dangling root"),
+            CatalogRoot::NotDirectory
+        );
+
+        let link_dir = base.join("link-dir");
+        std::os::unix::fs::symlink(&dir, &link_dir).expect("symlink to dir");
+        assert_eq!(
+            observe_catalog_root(&link_dir).expect("symlink-to-dir root"),
+            CatalogRoot::Directory
+        );
+
+        let link_file = base.join("link-file");
+        std::os::unix::fs::symlink(&file, &link_file).expect("symlink to file");
+        assert_eq!(
+            observe_catalog_root(&link_file).expect("symlink-to-file root"),
+            CatalogRoot::NotDirectory
+        );
+
+        let err = open_catalog_root(&file).expect_err("file root is not listable");
+        assert_eq!(err.category(), crate::Category::Catalog);
+        assert!(matches!(
+            err.code(),
+            Code::Catalog(CatalogError::RootNotDirectory { .. })
+        ));
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn backup_id_slot_lstat_occupancy() {
+        let base = scratch("slot");
+        let missing = base.join("free");
+        assert!(
+            !backup_id_slot_is_occupied(&missing).expect("free slot"),
+            "NotFound is free"
+        );
+
+        let dir = base.join("dir");
+        fs::create_dir(&dir).expect("dir");
+        assert!(backup_id_slot_is_occupied(&dir).expect("dir occupies"));
+
+        let file = base.join("file");
+        fs::write(&file, b"x").expect("file");
+        assert!(backup_id_slot_is_occupied(&file).expect("file occupies"));
+
+        let dangling = base.join("dangling");
+        std::os::unix::fs::symlink(base.join("nope"), &dangling).expect("dangling");
+        assert!(backup_id_slot_is_occupied(&dangling).expect("dangling occupies"));
+
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&dir, &link).expect("symlink");
+        assert!(backup_id_slot_is_occupied(&link).expect("symlink occupies"));
+
+        cleanup(&base);
+    }
 }

@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Pane, Process, Session, Size, Tmux, Window};
+use crate::{Result, Snapshot as SnapshotError};
 
-use super::snapshot::{PaneAsset, SUMMARY_FILE_NAME, SnapshotError};
+use super::snapshot::{PaneAsset, SUMMARY_FILE_NAME};
 
 const SNAPSHOT_SCHEMA_MAJOR: u16 = 1;
 const SNAPSHOT_SCHEMA_MINOR: u16 = 1;
@@ -100,14 +101,15 @@ pub(crate) struct SnapshotSize {
 }
 
 pub(crate) fn summary_to_tmux(summary: &SnapshotSummaryFile) -> Tmux {
-    let mut tmux = Tmux::new(summary.backup_id.clone());
-    tmux.create_time = summary.created_at.clone();
-    tmux.sessions = summary
-        .session_names
-        .iter()
-        .map(|name| Session::new(name.clone()))
-        .collect();
-    tmux
+    Tmux {
+        backup_id: summary.backup_id.clone(),
+        sessions: summary
+            .session_names
+            .iter()
+            .map(|name| Session::new(name.clone()))
+            .collect(),
+        create_time: summary.created_at.clone(),
+    }
 }
 
 pub(crate) fn current_version() -> SchemaVersion {
@@ -117,32 +119,36 @@ pub(crate) fn current_version() -> SchemaVersion {
     }
 }
 
-pub(crate) fn summary_count(value: usize, field: &'static str) -> Result<u32, SnapshotError> {
-    u32::try_from(value).map_err(|_| SnapshotError::InvalidSummary {
-        path: PathBuf::from(SUMMARY_FILE_NAME),
-        detail: format!("{field} exceeds u32 range"),
+pub(crate) fn summary_count(value: usize, field: &'static str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| {
+        SnapshotError::InvalidSummary {
+            path: PathBuf::from(SUMMARY_FILE_NAME),
+            detail: format!("{field} exceeds u32 range"),
+        }
+        .into()
     })
 }
 
-pub(crate) fn read_json_slice<T>(path: &Path, bytes: &[u8]) -> Result<T, SnapshotError>
+pub(crate) fn read_json_slice<T>(path: &Path, bytes: &[u8]) -> Result<T>
 where
     T: for<'de> Deserialize<'de>,
 {
-    serde_json::from_slice(bytes).map_err(|source| SnapshotError::Json {
-        path: path.to_path_buf(),
-        source,
+    serde_json::from_slice(bytes).map_err(|source| {
+        SnapshotError::SnapshotJson {
+            path: path.to_path_buf(),
+            source,
+        }
+        .into()
     })
 }
 
-pub(crate) fn ensure_supported_version(
-    version: SchemaVersion,
-    path: &Path,
-) -> Result<(), SnapshotError> {
+pub(crate) fn ensure_supported_version(version: SchemaVersion, path: &Path) -> Result<()> {
     if version.major != SNAPSHOT_SCHEMA_MAJOR {
         return Err(SnapshotError::UnsupportedVersion {
             path: path.to_path_buf(),
             found_major: version.major,
-        });
+        }
+        .into());
     }
     Ok(())
 }
@@ -150,21 +156,19 @@ pub(crate) fn ensure_supported_version(
 pub(crate) fn build_loaded_snapshot(
     snapshot_dir: &Path,
     manifest: SnapshotManifestFile,
-) -> Result<(Tmux, BTreeMap<String, PaneAsset>), SnapshotError> {
-    let mut tmux = Tmux::new(manifest.backup_id.clone());
-    tmux.create_time = manifest.created_at.clone();
+) -> Result<(Tmux, BTreeMap<String, PaneAsset>)> {
+    let mut tmux = Tmux {
+        backup_id: manifest.backup_id.clone(),
+        sessions: Vec::new(),
+        create_time: manifest.created_at.clone(),
+    };
     let mut pane_assets = BTreeMap::new();
 
     for session in manifest.sessions {
-        let mut model_session = Session::new(session.name.clone());
-        model_session.attached = session.attached;
-        model_session.size = session.size.into_size();
+        let mut model_windows = Vec::new();
 
         for window in session.windows {
-            let mut model_window = Window::new(&session.name, window.id);
-            model_window.name = window.name;
-            model_window.active = window.active;
-            model_window.layout = window.layout;
+            let mut model_panes = Vec::new();
 
             for pane in window.panes {
                 let meta = manifest.pane_table.get(&pane.content_ref).ok_or_else(|| {
@@ -174,9 +178,11 @@ pub(crate) fn build_loaded_snapshot(
                     }
                 })?;
 
-                let pane_id = format!("{}:{}.{}", session.name, window.id, pane.pane_id);
+                let pane_id =
+                    crate::model::PaneTarget::from_parts(&session.name, window.id, pane.pane_id)
+                        .into_string();
                 if pane_assets.contains_key(&pane_id) {
-                    return Err(SnapshotError::DuplicatePaneId { pane_id });
+                    return Err(SnapshotError::DuplicatePaneId { pane_id }.into());
                 }
 
                 let relative_path = super::snapshot::validated_relative_path(&meta.relative_path)?;
@@ -190,18 +196,33 @@ pub(crate) fn build_loaded_snapshot(
                     },
                 );
 
-                let mut model_pane = Pane::new(&session.name, window.id, pane.pane_id);
-                model_pane.active = pane.active;
-                model_pane.path = pane.path;
-                model_pane.size = pane.size.into_size();
-                model_pane.command_tree = pane.command_tree.map(process_from_snapshot);
-                model_window.panes.push(model_pane);
+                model_panes.push(Pane {
+                    pane_id: pane.pane_id,
+                    size: pane.size.into_size(),
+                    path: pane.path,
+                    active: pane.active,
+                    session_name: session.name.clone(),
+                    window_id: window.id,
+                    command_tree: pane.command_tree.map(process_from_snapshot),
+                });
             }
 
-            model_session.windows.push(model_window);
+            model_windows.push(Window {
+                window_id: window.id,
+                name: window.name,
+                panes: model_panes,
+                active: window.active,
+                session_name: session.name.clone(),
+                layout: window.layout,
+            });
         }
 
-        tmux.sessions.push(model_session);
+        tmux.sessions.push(Session {
+            name: session.name,
+            attached: session.attached,
+            size: session.size.into_size(),
+            windows: model_windows,
+        });
     }
 
     Ok((tmux, pane_assets))

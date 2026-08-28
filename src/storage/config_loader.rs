@@ -1,18 +1,24 @@
-use crate::config::{AppConfig, ConfigError, ConfigPaths};
+use crate::config::{AppConfig, ConfigPaths};
+use crate::error::{Config as ConfigError, Result};
 
 use super::fs_ops;
 
 pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../../assets/config.toml");
 
-pub fn load_or_init_app_config(paths: &ConfigPaths) -> Result<AppConfig, ConfigError> {
+pub fn load_or_init_app_config(paths: &ConfigPaths) -> Result<AppConfig> {
     bootstrap_config(paths)?;
     let config = parse_config_file(paths)?;
     ensure_runtime_dirs(paths, &config)?;
     Ok(config)
 }
 
-fn bootstrap_config(paths: &ConfigPaths) -> Result<(), ConfigError> {
-    if paths.config_file.exists() {
+fn bootstrap_config(paths: &ConfigPaths) -> Result<()> {
+    if fs_ops::optional_metadata(&paths.config_file, |path, source| ConfigError::ReadFile {
+        path,
+        source,
+    })?
+    .is_some()
+    {
         return Ok(());
     }
 
@@ -29,22 +35,23 @@ fn bootstrap_config(paths: &ConfigPaths) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn parse_config_file(paths: &ConfigPaths) -> Result<AppConfig, ConfigError> {
+fn parse_config_file(paths: &ConfigPaths) -> Result<AppConfig> {
     let content = fs_ops::read_to_string(&paths.config_file, |path, source| {
         ConfigError::ReadFile { path, source }
     })?;
     let config: AppConfig = toml::from_str(&content).map_err(|source| ConfigError::ParseToml {
         path: paths.config_file.clone(),
-        source,
+        source: Box::new(source),
     })?;
     config.validate()?;
     Ok(config)
 }
 
-fn ensure_runtime_dirs(paths: &ConfigPaths, config: &AppConfig) -> Result<(), ConfigError> {
+fn ensure_runtime_dirs(paths: &ConfigPaths, config: &AppConfig) -> Result<()> {
     let backup_root = paths.backup_root(config);
     fs_ops::create_dir_all(&backup_root, |path, source| ConfigError::CreateDir {
         path,
         source,
-    })
+    })?;
+    Ok(())
 }

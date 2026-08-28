@@ -7,23 +7,20 @@
 //! and avoids mixing filesystem concerns into the capture path.
 
 use std::collections::BTreeMap;
-use std::io;
 use std::path::PathBuf;
 
-use chrono::{Local, NaiveDateTime};
-use thiserror::Error;
-
 use crate::config::{AppState, ExecutionOptions};
+use crate::error::{Backup as BackupError, Error, Result};
 use crate::model::{Pane, Session, Size, Tmux, Window};
-use crate::storage::{BackupNameError, SnapshotError, write_snapshot_dir};
-use crate::tmux_adapter::SubprocessError;
+use crate::storage::{BackupId, write_snapshot_dir};
 use crate::tmux_adapter::{
     OUTPUT_SEPARATOR, TmuxClient, TmuxRuntimeOptions, discover_socket_names,
 };
+use chrono::{Local, NaiveDateTime};
+use xerror::Context;
 
 mod process;
 
-const BACKUP_ID_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 const CREATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +36,7 @@ impl BackupTimestamp {
     }
 
     fn backup_id(self) -> String {
-        format_local_time(self.local_time, BACKUP_ID_TIME_FORMAT)
+        BackupId::automatic_at(self.local_time).into_string()
     }
 
     fn create_time(self) -> String {
@@ -66,48 +63,13 @@ pub struct SocketBackupOutcome {
 #[derive(Debug)]
 pub enum SocketBackupResult {
     Completed(SocketBackupOutcome),
-    Failed {
-        socket_name: String,
-        error: BackupError,
-    },
-}
-
-#[derive(Debug, Error)]
-pub enum BackupError {
-    #[error(
-        "backup aborted: the given backup name already exists. name:{backup_id} path:{}",
-        path.display()
-    )]
-    DuplicateBackupId { backup_id: String, path: PathBuf },
-    #[error(transparent)]
-    InvalidBackupName(#[from] BackupNameError),
-    #[error(transparent)]
-    Tmux(#[from] SubprocessError),
-    #[error(transparent)]
-    Snapshot(#[from] SnapshotError),
-    #[error("failed to write {}: {source}", path.display())]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("failed to discover tmux sockets: {source}")]
-    SocketDiscovery {
-        #[source]
-        source: io::Error,
-    },
-    #[error("invalid tmux {command} output: {detail} (line: {line})")]
-    InvalidTmuxOutput {
-        command: &'static str,
-        line: String,
-        detail: String,
-    },
+    Failed { socket_name: String, error: Error },
 }
 
 pub fn capture_backup(
     config: &AppState,
     requested_backup_id: Option<&str>,
-) -> Result<BackupOutcome, BackupError> {
+) -> Result<BackupOutcome> {
     tracing::info!(
         requested_backup_id = requested_backup_id.unwrap_or("-"),
         socket_name = config.socket_name().unwrap_or("default"),
@@ -127,11 +89,8 @@ pub fn capture_backup(
 /// nothing has been written yet. An empty directory falls back to the unnamed
 /// default server so a machine with no leftover sockets still backs up `tmux`
 /// without `-L`.
-pub fn capture_all_socket_backups(
-    config: &AppState,
-) -> Result<Vec<SocketBackupResult>, BackupError> {
-    let socket_names =
-        discover_socket_names().map_err(|source| BackupError::SocketDiscovery { source })?;
+pub fn capture_all_socket_backups(config: &AppState) -> Result<Vec<SocketBackupResult>> {
+    let socket_names = discover_socket_names()?;
 
     if socket_names.is_empty() {
         return capture_unnamed_default_socket(config);
@@ -143,9 +102,7 @@ pub fn capture_all_socket_backups(
         .collect())
 }
 
-fn capture_unnamed_default_socket(
-    config: &AppState,
-) -> Result<Vec<SocketBackupResult>, BackupError> {
+fn capture_unnamed_default_socket(config: &AppState) -> Result<Vec<SocketBackupResult>> {
     capture_backup(config, None).map(|outcome| {
         vec![SocketBackupResult::Completed(SocketBackupOutcome {
             socket_name: "default".to_string(),
@@ -163,7 +120,7 @@ fn capture_backup_for_discovered_socket(
     // `-L default` would talk to the same server but write a different catalog.
     let socket_name_for_tmux = (socket_name != "default").then_some(socket_name.as_str());
     socket_config.set_execution_options(ExecutionOptions::with_socket_name(socket_name_for_tmux));
-    match capture_backup(&socket_config, None) {
+    match capture_backup(&socket_config, None).with_context(|| format!("socket {socket_name}")) {
         Ok(outcome) => SocketBackupResult::Completed(SocketBackupOutcome {
             socket_name,
             outcome,
@@ -176,18 +133,21 @@ fn capture_backup_with_client(
     config: &AppState,
     requested_backup_id: Option<&str>,
     client: &impl TmuxClient,
-) -> Result<BackupOutcome, BackupError> {
+) -> Result<BackupOutcome> {
     let timestamp = BackupTimestamp::now();
     let backup_id = resolve_backup_id(requested_backup_id, timestamp)?;
     let backup_path = config.active_backup_path().join(&backup_id);
 
     tracing::info!(backup_id, path = %backup_path.display(), "resolved backup destination");
 
-    if backup_path.exists() {
+    // Preflight only: occupied names skip capture. This is not a lock; a race
+    // at commit stays Snapshot I/O and is not reclassified as Duplicate.
+    if crate::storage::catalog::backup_id_slot_is_occupied(&backup_path)? {
         return Err(BackupError::DuplicateBackupId {
             backup_id,
             path: backup_path,
-        });
+        }
+        .into());
     }
 
     if !client.has_server()? {
@@ -224,11 +184,9 @@ fn capture_backup_with_client(
 fn resolve_backup_id(
     requested_backup_id: Option<&str>,
     timestamp: BackupTimestamp,
-) -> Result<String, BackupError> {
+) -> Result<String> {
     match requested_backup_id {
-        Some(backup_id) => {
-            crate::storage::normalize_backup_name(backup_id).map_err(BackupError::InvalidBackupName)
-        }
+        Some(backup_id) => Ok(BackupId::parse_custom(backup_id)?.into_string()),
         None => Ok(timestamp.backup_id()),
     }
 }
@@ -237,34 +195,31 @@ fn load_snapshot(
     client: &impl TmuxClient,
     backup_id: &str,
     timestamp: BackupTimestamp,
-) -> Result<Tmux, BackupError> {
-    let mut tmux = Tmux::new(backup_id);
-    tmux.create_time = timestamp.create_time();
-    tmux.sessions = load_sessions(client)?;
-    Ok(tmux)
+) -> Result<Tmux> {
+    Ok(Tmux {
+        backup_id: backup_id.to_string(),
+        sessions: load_sessions(client)?,
+        create_time: timestamp.create_time(),
+    })
 }
 
 fn capture_snapshot_panes(
     client: &impl TmuxClient,
     snapshot: &Tmux,
-) -> Result<BTreeMap<String, Vec<u8>>, BackupError> {
+) -> Result<BTreeMap<String, Vec<u8>>> {
     let mut pane_contents = BTreeMap::new();
 
-    for session in &snapshot.sessions {
-        for window in &session.windows {
-            for pane in &window.panes {
-                let pane_id = pane.pane_target();
-                let pane_bytes = client.capture_pane_bytes(&pane_id)?;
-                tracing::debug!(pane_id, byte_len = pane_bytes.len(), "captured pane bytes");
-                pane_contents.insert(pane_id, pane_bytes);
-            }
-        }
+    for pane in snapshot.panes() {
+        let pane_id = pane.pane_target().into_string();
+        let pane_bytes = client.capture_pane_bytes(&pane_id)?;
+        tracing::debug!(pane_id, byte_len = pane_bytes.len(), "captured pane bytes");
+        pane_contents.insert(pane_id, pane_bytes);
     }
 
     Ok(pane_contents)
 }
 
-fn load_sessions(client: &impl TmuxClient) -> Result<Vec<Session>, BackupError> {
+fn load_sessions(client: &impl TmuxClient) -> Result<Vec<Session>> {
     client
         .list_sessions()?
         .into_iter()
@@ -273,16 +228,18 @@ fn load_sessions(client: &impl TmuxClient) -> Result<Vec<Session>, BackupError> 
         .collect()
 }
 
-fn parse_session(client: &impl TmuxClient, line: &str) -> Result<Session, BackupError> {
+fn parse_session(client: &impl TmuxClient, line: &str) -> Result<Session> {
     let fields = split_fields("list-sessions", line, 3)?;
-    let mut session = Session::new(fields[0]);
-    session.size = parse_size(fields[1], "list-sessions", line)?;
-    session.attached = parse_active(fields[2], "list-sessions", line)?;
-    session.windows = load_windows(client, &session.name)?;
-    Ok(session)
+    let name = fields[0].to_string();
+    Ok(Session {
+        windows: load_windows(client, &name)?,
+        name,
+        attached: parse_active(fields[2], "list-sessions", line)?,
+        size: parse_size(fields[1], "list-sessions", line)?,
+    })
 }
 
-fn load_windows(client: &impl TmuxClient, session_name: &str) -> Result<Vec<Window>, BackupError> {
+fn load_windows(client: &impl TmuxClient, session_name: &str) -> Result<Vec<Window>> {
     client
         .list_windows(session_name)?
         .into_iter()
@@ -291,26 +248,20 @@ fn load_windows(client: &impl TmuxClient, session_name: &str) -> Result<Vec<Wind
         .collect()
 }
 
-fn parse_window(
-    client: &impl TmuxClient,
-    session_name: &str,
-    line: &str,
-) -> Result<Window, BackupError> {
+fn parse_window(client: &impl TmuxClient, session_name: &str, line: &str) -> Result<Window> {
     let fields = split_fields("list-windows", line, 4)?;
     let window_id = parse_u32(fields[0], "list-windows", line)?;
-    let mut window = Window::new(session_name, window_id);
-    window.name = fields[1].to_string();
-    window.active = parse_active(fields[2], "list-windows", line)?;
-    window.layout = fields[3].to_string();
-    window.panes = load_panes(client, session_name, window_id)?;
-    Ok(window)
+    Ok(Window {
+        window_id,
+        name: fields[1].to_string(),
+        panes: load_panes(client, session_name, window_id)?,
+        active: parse_active(fields[2], "list-windows", line)?,
+        session_name: session_name.to_string(),
+        layout: fields[3].to_string(),
+    })
 }
 
-fn load_panes(
-    client: &impl TmuxClient,
-    session_name: &str,
-    window_id: u32,
-) -> Result<Vec<Pane>, BackupError> {
+fn load_panes(client: &impl TmuxClient, session_name: &str, window_id: u32) -> Result<Vec<Pane>> {
     client
         .list_panes(
             session_name,
@@ -328,22 +279,25 @@ fn load_panes(
         .collect()
 }
 
-fn parse_pane(session_name: &str, window_id: u32, line: &str) -> Result<Pane, BackupError> {
+fn parse_pane(session_name: &str, window_id: u32, line: &str) -> Result<Pane> {
     let fields = split_fields("list-panes", line, 6)?;
     let pane_id = parse_u32(fields[0], "list-panes", line)?;
-    let mut pane = Pane::new(session_name, window_id, pane_id);
-    pane.size = parse_size(fields[1], "list-panes", line)?;
-    pane.path = fields[2].to_string();
-    pane.active = parse_active(fields[3], "list-panes", line)?;
-    pane.command_tree = pane_command_tree_from_tmux(fields[4], fields[5], line)?;
-    Ok(pane)
+    Ok(Pane {
+        pane_id,
+        size: parse_size(fields[1], "list-panes", line)?,
+        path: fields[2].to_string(),
+        active: parse_active(fields[3], "list-panes", line)?,
+        session_name: session_name.to_string(),
+        window_id,
+        command_tree: pane_command_tree_from_tmux(fields[4], fields[5], line)?,
+    })
 }
 
 fn pane_command_tree_from_tmux(
     current_command: &str,
     pane_pid: &str,
     line: &str,
-) -> Result<Option<crate::model::Process>, BackupError> {
+) -> Result<Option<crate::model::Process>> {
     let pane_pid = pane_pid.trim();
     if pane_pid.is_empty() {
         return Ok(None);
@@ -364,7 +318,7 @@ fn split_fields<'a>(
     command: &'static str,
     line: &'a str,
     expected_len: usize,
-) -> Result<Vec<&'a str>, BackupError> {
+) -> Result<Vec<&'a str>> {
     let fields = line.split(OUTPUT_SEPARATOR).collect::<Vec<_>>();
     if fields.len() == expected_len {
         Ok(fields)
@@ -377,7 +331,7 @@ fn split_fields<'a>(
     }
 }
 
-fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<Size, BackupError> {
+fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<Size> {
     let Some(inner) = command_value
         .trim()
         .strip_prefix('(')
@@ -400,7 +354,7 @@ fn parse_size(command_value: &str, command: &'static str, line: &str) -> Result<
     ))
 }
 
-fn parse_u32(value: &str, command: &'static str, line: &str) -> Result<u32, BackupError> {
+fn parse_u32(value: &str, command: &'static str, line: &str) -> Result<u32> {
     value.parse::<u32>().map_err(|error| {
         invalid_tmux_output(
             command,
@@ -410,7 +364,7 @@ fn parse_u32(value: &str, command: &'static str, line: &str) -> Result<u32, Back
     })
 }
 
-fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool, BackupError> {
+fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool> {
     value
         .parse::<i64>()
         .map(|value| value > 0)
@@ -423,7 +377,7 @@ fn parse_active(value: &str, command: &'static str, line: &str) -> Result<bool, 
         })
 }
 
-fn invalid_size_tuple(command: &'static str, line: &str, command_value: &str) -> BackupError {
+fn invalid_size_tuple(command: &'static str, line: &str, command_value: &str) -> Error {
     invalid_tmux_output(
         command,
         line.to_string(),
@@ -431,16 +385,13 @@ fn invalid_size_tuple(command: &'static str, line: &str, command_value: &str) ->
     )
 }
 
-fn invalid_tmux_output(
-    command: &'static str,
-    line: String,
-    detail: impl Into<String>,
-) -> BackupError {
+fn invalid_tmux_output(command: &'static str, line: String, detail: impl Into<String>) -> Error {
     BackupError::InvalidTmuxOutput {
         command,
         line,
         detail: detail.into(),
     }
+    .into()
 }
 
 fn format_local_time(local_time: NaiveDateTime, format: &str) -> String {
@@ -458,6 +409,7 @@ mod tests {
 
     use super::*;
     use crate::config::AppState;
+    use crate::error::Tmux as TmuxError;
 
     #[test]
     fn capture_backup_with_client_uses_trait_fake() {
@@ -499,7 +451,7 @@ mod tests {
             .expect("test time should be valid");
 
         assert_eq!(
-            format_local_time(local_time, BACKUP_ID_TIME_FORMAT),
+            BackupId::automatic_at(local_time).as_str(),
             "20240102_030405"
         );
     }
@@ -554,23 +506,19 @@ mod tests {
     }
 
     impl TmuxClient for FakeBackupClient {
-        fn has_server(&self) -> Result<bool, SubprocessError> {
+        fn has_server(&self) -> Result<bool> {
             Ok(true)
         }
 
-        fn list_sessions(&self) -> Result<Vec<String>, SubprocessError> {
+        fn list_sessions(&self) -> Result<Vec<String>> {
             Ok(self.sessions.clone())
         }
 
-        fn list_windows(&self, session_name: &str) -> Result<Vec<String>, SubprocessError> {
+        fn list_windows(&self, session_name: &str) -> Result<Vec<String>> {
             Ok(self.windows.get(session_name).cloned().unwrap_or_default())
         }
 
-        fn list_panes(
-            &self,
-            session_name: &str,
-            window_index: usize,
-        ) -> Result<Vec<String>, SubprocessError> {
+        fn list_panes(&self, session_name: &str, window_index: usize) -> Result<Vec<String>> {
             Ok(self
                 .panes
                 .get(&(session_name.to_string(), window_index))
@@ -578,28 +526,21 @@ mod tests {
                 .unwrap_or_default())
         }
 
-        fn create_session(
-            &self,
-            _session_name: &str,
-            _width: u32,
-            _height: u32,
-        ) -> Result<(), SubprocessError> {
+        fn create_session(&self, _session_name: &str, _width: u32, _height: u32) -> Result<()> {
             unreachable!("backup fake should not create sessions")
         }
 
-        fn kill_session(&self, _session_name: &str) -> Result<bool, SubprocessError> {
+        fn kill_session(&self, _session_name: &str) -> Result<bool> {
             unreachable!("backup fake should not kill sessions")
         }
 
-        fn capture_pane(&self, _pane_id: &str) -> Result<String, SubprocessError> {
+        fn capture_pane(&self, _pane_id: &str) -> Result<String> {
             unreachable!("backup fake should use byte capture")
         }
 
-        fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>, SubprocessError> {
-            self.captures
-                .get(pane_id)
-                .cloned()
-                .ok_or_else(|| SubprocessError::Failed {
+        fn capture_pane_bytes(&self, pane_id: &str) -> Result<Vec<u8>> {
+            self.captures.get(pane_id).cloned().ok_or_else(|| {
+                TmuxError::TmuxFailed {
                     command: vec![
                         "fake".to_string(),
                         "capture-pane".to_string(),
@@ -608,51 +549,40 @@ mod tests {
                     status: Some(1),
                     stdout: String::new(),
                     stderr: "missing pane capture".to_string(),
-                })
+                }
+                .into()
+            })
         }
 
-        fn show_option(&self, _option: &str) -> Result<String, SubprocessError> {
+        fn show_option(&self, _option: &str) -> Result<String> {
             unreachable!("backup fake should not read options")
         }
 
-        fn has_session(&self, _session_name: &str) -> Result<bool, SubprocessError> {
+        fn has_session(&self, _session_name: &str) -> Result<bool> {
             unreachable!("backup fake should not probe sessions individually")
         }
 
-        fn clear_pane(&self, _pane_id: &str) -> Result<(), SubprocessError> {
+        fn clear_pane(&self, _pane_id: &str) -> Result<()> {
             unreachable!("backup fake should not mutate panes")
         }
 
-        fn send_keys(&self, _target: &str, _keys: &str) -> Result<(), SubprocessError> {
+        fn send_keys(&self, _target: &str, _keys: &str) -> Result<()> {
             unreachable!("backup fake should not send keys")
         }
 
-        fn create_empty_window(
-            &self,
-            _session_name: &str,
-            _base_index: usize,
-        ) -> Result<(), SubprocessError> {
+        fn create_empty_window(&self, _session_name: &str, _base_index: usize) -> Result<()> {
             unreachable!("backup fake should not create windows")
         }
 
-        fn move_window(&self, _source: &str, _target: &str) -> Result<(), SubprocessError> {
+        fn move_window(&self, _source: &str, _target: &str) -> Result<()> {
             unreachable!("backup fake should not move windows")
         }
 
-        fn rename_window(
-            &self,
-            _session_name: &str,
-            _window_id: usize,
-            _name: &str,
-        ) -> Result<(), SubprocessError> {
+        fn rename_window(&self, _session_name: &str, _window_id: usize, _name: &str) -> Result<()> {
             unreachable!("backup fake should not rename windows")
         }
 
-        fn select_window(
-            &self,
-            _session_name: &str,
-            _window_id: usize,
-        ) -> Result<(), SubprocessError> {
+        fn select_window(&self, _session_name: &str, _window_id: usize) -> Result<()> {
             unreachable!("backup fake should not select windows")
         }
 
@@ -661,7 +591,7 @@ mod tests {
             _session_name: &str,
             _window_id: usize,
             _pane_min_id: usize,
-        ) -> Result<(), SubprocessError> {
+        ) -> Result<()> {
             unreachable!("backup fake should not split windows")
         }
 
@@ -670,15 +600,11 @@ mod tests {
             _session_name: &str,
             _window_id: usize,
             _layout: &str,
-        ) -> Result<(), SubprocessError> {
+        ) -> Result<()> {
             unreachable!("backup fake should not select layouts")
         }
 
-        fn restore_pane_content(
-            &self,
-            _pane_id: &str,
-            _filename: &Path,
-        ) -> Result<(), SubprocessError> {
+        fn restore_pane_content(&self, _pane_id: &str, _filename: &Path) -> Result<()> {
             unreachable!("backup fake should not restore pane content")
         }
     }

@@ -1,11 +1,9 @@
+use std::io;
 use std::process::{Child, Command, Output, Stdio};
-use std::thread;
 use std::time::{Duration, Instant};
 
-use super::error::SubprocessError;
 use super::verbose_log::{self, VerboseLogLevel};
-
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
+use crate::{Error, Result, Tmux as TmuxError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CommandOutput {
@@ -36,22 +34,20 @@ impl ByteCommandOutput {
 }
 
 pub trait SubprocessExecutor {
-    fn execute(&self, command: Vec<String>) -> Result<CommandOutput, SubprocessError>;
-    fn execute_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput, SubprocessError>;
+    fn execute(&self, command: Vec<String>) -> Result<CommandOutput>;
+    fn execute_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SubprocessRunner {
-    timeout: Option<Duration>,
-}
+/// Runs tmux as a child and waits until it exits.
+///
+/// remux is a synchronous CLI: a hung tmux is a hung remux. There is no
+/// adapter-level deadline or `TmuxTimedOut`; adding one without draining
+/// pipes would mis-timeout `capture-pane`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubprocessRunner;
 
 impl SubprocessRunner {
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    fn run(&self, command: Vec<String>) -> Result<CommandOutput, SubprocessError> {
+    fn run(&self, command: Vec<String>) -> Result<CommandOutput> {
         let started_at = Instant::now();
         log_tmux_command_start(&command);
         let child = match spawn_command(&command) {
@@ -62,7 +58,7 @@ impl SubprocessRunner {
                 return Err(error);
             }
         };
-        let output = match wait_for_output(command.clone(), child, self.timeout) {
+        let output = match wait_for_output(command.clone(), child) {
             Ok(output) => output,
             Err(error) => {
                 log_tmux_command_failure(&command, started_at.elapsed(), &error, false);
@@ -89,7 +85,7 @@ impl SubprocessRunner {
         Ok(output)
     }
 
-    fn run_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput, SubprocessError> {
+    fn run_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput> {
         let started_at = Instant::now();
         log_tmux_command_start(&command);
         let child = match spawn_command(&command) {
@@ -100,7 +96,7 @@ impl SubprocessRunner {
                 return Err(error);
             }
         };
-        let output = match wait_for_output(command.clone(), child, self.timeout) {
+        let output = match wait_for_output(command.clone(), child) {
             Ok(output) => output,
             Err(error) => {
                 log_tmux_command_failure(&command, started_at.elapsed(), &error, true);
@@ -129,103 +125,51 @@ impl SubprocessRunner {
 }
 
 impl SubprocessExecutor for SubprocessRunner {
-    fn execute(&self, command: Vec<String>) -> Result<CommandOutput, SubprocessError> {
+    fn execute(&self, command: Vec<String>) -> Result<CommandOutput> {
         self.run(command)
     }
 
-    fn execute_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput, SubprocessError> {
+    fn execute_bytes(&self, command: Vec<String>) -> Result<ByteCommandOutput> {
         self.run_bytes(command)
     }
 }
 
-fn spawn_command(command: &[String]) -> Result<Child, SubprocessError> {
-    Command::new(&command[0])
+fn spawn_command(command: &[String]) -> Result<Child> {
+    let Some(program) = command.first() else {
+        return Err(TmuxError::SpawnFailed {
+            command: Vec::new(),
+            source: io::Error::other("empty command"),
+        }
+        .into());
+    };
+    Command::new(program)
         .args(&command[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|source| match source.kind() {
-            std::io::ErrorKind::NotFound => SubprocessError::BinaryNotFound {
-                command: command.to_vec(),
-                source,
-            },
-            _ => SubprocessError::SpawnFailed {
-                command: command.to_vec(),
-                source,
-            },
+        .map_err(|source| {
+            match source.kind() {
+                std::io::ErrorKind::NotFound => TmuxError::BinaryNotFound {
+                    command: command.to_vec(),
+                    source,
+                },
+                _ => TmuxError::SpawnFailed {
+                    command: command.to_vec(),
+                    source,
+                },
+            }
+            .into()
         })
 }
 
-fn wait_for_output(
-    command: Vec<String>,
-    mut child: Child,
-    timeout: Option<Duration>,
-) -> Result<Output, SubprocessError> {
-    if let Some(timeout) = timeout {
-        // Blocking `wait_with_output` cannot honor a deadline, so poll until
-        // the process exits or the timeout elapses.
-        if !subprocess_exited_before_deadline(&command, &mut child, timeout)? {
-            return kill_timed_out_subprocess(command, child, timeout);
-        }
-    }
-
+fn wait_for_output(command: Vec<String>, child: Child) -> Result<Output> {
+    // Unbounded on purpose: stdout/stderr stay piped into this wait, so the
+    // child cannot stall on a full pipe. A timeout loop that only `try_wait`s
+    // would deadlock large captures.
     child
         .wait_with_output()
-        .map_err(|source| SubprocessError::WaitFailed { command, source })
-}
-
-fn subprocess_exited_before_deadline(
-    command: &[String],
-    child: &mut Child,
-    timeout: Duration,
-) -> Result<bool, SubprocessError> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if subprocess_has_exited(command, child)? {
-            return Ok(true);
-        }
-        if Instant::now() >= deadline {
-            return Ok(false);
-        }
-        thread::sleep(POLL_INTERVAL);
-    }
-}
-
-fn subprocess_has_exited(command: &[String], child: &mut Child) -> Result<bool, SubprocessError> {
-    match child.try_wait() {
-        Ok(status) => Ok(status.is_some()),
-        Err(source) => Err(SubprocessError::WaitFailed {
-            command: command.to_vec(),
-            source,
-        }),
-    }
-}
-
-/// Kill the still-running process and keep its output for the timeout error.
-///
-/// `wait_with_output` has to take ownership of `Child` to drain stdout/stderr,
-/// so this path consumes the process instead of returning it to the caller.
-fn kill_timed_out_subprocess(
-    command: Vec<String>,
-    mut child: Child,
-    timeout: Duration,
-) -> Result<Output, SubprocessError> {
-    let _ = child.kill();
-    let output = child
-        .wait_with_output()
-        .map_err(|source| SubprocessError::WaitFailed {
-            command: command.clone(),
-            source,
-        })?;
-
-    Err(SubprocessError::TimedOut {
-        command,
-        timeout,
-        status: output.status.code(),
-        stdout: normalize_output_stream(output.stdout),
-        stderr: normalize_output_stream(output.stderr),
-    })
+        .map_err(|source| TmuxError::WaitFailed { command, source }.into())
 }
 
 fn log_command_output(output: &CommandOutput, elapsed: Duration, byte_stream: bool) {
@@ -252,12 +196,7 @@ fn log_byte_command_output(output: &ByteCommandOutput, elapsed: Duration) {
     );
 }
 
-fn log_subprocess_error(
-    command: &[String],
-    error: &SubprocessError,
-    elapsed: Duration,
-    byte_stream: bool,
-) {
+fn log_subprocess_error(command: &[String], error: &Error, elapsed: Duration, byte_stream: bool) {
     tracing::error!(
         command = %format_command_for_log(command),
         error = %error,
@@ -311,7 +250,7 @@ fn log_tmux_command_finish(
 fn log_tmux_command_failure(
     command: &[String],
     elapsed: Duration,
-    error: &SubprocessError,
+    error: &Error,
     byte_stream: bool,
 ) {
     let rendered_command = format_command_for_log(command);
@@ -330,4 +269,20 @@ pub(crate) fn normalize_output_stream(bytes: Vec<u8>) -> String {
         text.pop();
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_command_returns_typed_spawn_failure() {
+        let error = SubprocessRunner
+            .execute(Vec::new())
+            .expect_err("empty argv must not panic");
+        assert!(matches!(
+            error.code(),
+            crate::Code::Tmux(TmuxError::SpawnFailed { command, .. }) if command.is_empty()
+        ));
+    }
 }

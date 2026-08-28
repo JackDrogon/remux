@@ -1,10 +1,8 @@
-use thiserror::Error;
-
 use crate::config::AppState;
+use crate::error::Result;
 use crate::storage::{
-    self, CatalogError, CompactFingerprint, SnapshotError, delete_backup, fingerprint,
-    is_automatic_backup_id, load_newest_backups, read_schema_version, read_snapshot_dir,
-    validate_pane_assets,
+    self, CompactFingerprint, SnapshotDirectory, delete_backup, is_automatic_backup_id,
+    load_newest_backups,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,15 +13,7 @@ pub enum CompactOutcome {
     Removed { deleted: String, kept: String },
 }
 
-#[derive(Debug, Error)]
-pub enum CompactError {
-    #[error(transparent)]
-    Catalog(#[from] CatalogError),
-    #[error(transparent)]
-    Snapshot(#[from] SnapshotError),
-}
-
-pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome, CompactError> {
+pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome> {
     let backups = load_newest_backups(config, 2)?;
     let Some((newer, older)) = backups.first().zip(backups.get(1)) else {
         tracing::info!(
@@ -69,11 +59,14 @@ pub fn compact_latest_pair(config: &AppState) -> Result<CompactOutcome, CompactE
     Ok(CompactOutcome::Removed { deleted, kept })
 }
 
-fn fingerprint_for_readable_entry(
-    entry: &storage::BackupEntry,
-) -> Result<CompactFingerprint, CompactError> {
-    let loaded = read_snapshot_dir(&entry.path)?;
-    validate_pane_assets(&entry.path, &loaded.pane_assets)?;
-    let (schema_major, schema_minor) = read_schema_version(&entry.path)?;
-    Ok(fingerprint(&loaded.tmux, schema_major, schema_minor))
+fn fingerprint_for_readable_entry(entry: &storage::BackupEntry) -> Result<CompactFingerprint> {
+    let directory = SnapshotDirectory::new(&entry.path);
+    let loaded = directory.read_full()?;
+    directory.validate_all_assets(&loaded.pane_assets)?;
+    let (schema_major, schema_minor) = directory.schema_version()?;
+    Ok(CompactFingerprint::from_tmux(
+        &loaded.tmux,
+        schema_major,
+        schema_minor,
+    ))
 }

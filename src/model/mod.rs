@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Size(Option<(u32, u32)>);
@@ -45,6 +46,15 @@ impl Tmux {
             create_time: String::new(),
         }
     }
+
+    pub fn panes(&self) -> impl Iterator<Item = &Pane> {
+        self.sessions.iter().flat_map(|session| {
+            session
+                .windows
+                .iter()
+                .flat_map(|window| window.panes.iter())
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +78,7 @@ impl Session {
         }
     }
 
-    pub fn windows_in_reverse(&self) -> Vec<&Window> {
+    pub fn windows_in_restore_order(&self) -> Vec<&Window> {
         let mut windows = self.windows.iter().collect::<Vec<_>>();
         windows.sort_by_key(|window| Reverse(window.window_id));
         windows
@@ -141,7 +151,69 @@ impl Pane {
         }
     }
 
-    pub fn pane_target(&self) -> String {
-        format!("{}:{}.{}", self.session_name, self.window_id, self.pane_id)
+    pub fn pane_target(&self) -> PaneTarget {
+        PaneTarget::from_parts(&self.session_name, self.window_id, self.pane_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WindowTarget(String);
+
+impl WindowTarget {
+    pub fn from_parts(session_name: &str, window_id: impl fmt::Display) -> Self {
+        Self(format!("{session_name}:{window_id}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for WindowTarget {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for WindowTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PaneTarget(String);
+
+impl PaneTarget {
+    pub fn from_parts(
+        session_name: &str,
+        window_id: impl fmt::Display,
+        pane_id: impl fmt::Display,
+    ) -> Self {
+        Self(format!("{session_name}:{window_id}.{pane_id}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for PaneTarget {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for PaneTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }

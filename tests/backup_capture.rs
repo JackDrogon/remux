@@ -79,9 +79,12 @@ fn creates_snapshot_tree() {
     let pane_ids = window
         .panes
         .iter()
-        .map(|pane| pane.pane_target())
+        .map(|pane| pane.pane_target().into_string())
         .collect::<Vec<_>>();
-    assert_eq!(pane_ids, vec!["work:1.0", "work:1.1"]);
+    assert_eq!(
+        pane_ids,
+        vec!["work:1.0".to_string(), "work:1.1".to_string()]
+    );
 
     assert_eq!(
         fs::read(backup_dir.join("panes").join("work:1.0.txt"))
@@ -360,8 +363,10 @@ fn unnamed_default_backup_reports_successful_sockets_when_a_later_socket_fails()
         "failed socket must not be reported as saved, stdout was: {stdout}"
     );
     assert!(
-        stderr.contains("subprocess exited with status") && !stderr.contains("binary not found"),
-        "expected the failed socket error on stderr, stderr was: {stderr}"
+        stderr.contains("socket sockB")
+            && stderr.contains("subprocess exited with status")
+            && !stderr.contains("binary not found"),
+        "expected the failed socket to be named on stderr, stderr was: {stderr}"
     );
     assert_eq!(
         list_directory_names(&sock_a_root).len(),

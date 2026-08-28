@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::config::{AppState, ExecutionOptions};
-use remux::tmux_adapter::SubprocessError;
 use remux::tmux_adapter::{TmuxCommand, TmuxRuntimeOptions};
+use remux::{Code, Tmux as TmuxError};
 
 #[test]
 fn socket_prefix_is_inserted() {
@@ -188,11 +188,11 @@ fn missing_tmux_binary_returns_typed_error() {
 
     let error = adapter.list_sessions().unwrap_err();
 
-    match error {
-        SubprocessError::BinaryNotFound { command, .. } => {
+    match error.code() {
+        Code::Tmux(TmuxError::BinaryNotFound { command, .. }) => {
             assert_eq!(
                 command,
-                vec![
+                &vec![
                     missing_binary,
                     "list-sessions".to_string(),
                     "-F#S:=:(#{window_width},#{window_height}):=:#{session_attached}".to_string(),

@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use remux::model::{Pane, Process, Session, Size, Tmux, Window};
-use remux::storage::{self, SnapshotError};
+use remux::storage;
+use remux::{Category, Code, Snapshot};
 
 mod support;
 
@@ -34,7 +35,10 @@ fn write_rejects_missing_pane_bytes() {
         &BTreeMap::new(),
     )
     .expect_err("missing pane bytes should fail");
-    assert!(matches!(error, SnapshotError::MissingPaneBytes { .. }));
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::MissingPaneBytes { .. })
+    ));
 }
 
 #[test]
@@ -60,7 +64,70 @@ fn write_rejects_duplicate_pane_ids() {
         &pane_contents,
     )
     .expect_err("duplicate pane ids should fail");
-    assert!(matches!(error, SnapshotError::DuplicatePaneId { .. }));
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::DuplicatePaneId { .. })
+    ));
+}
+
+#[test]
+fn land_on_occupied_path_stays_snapshot_io() {
+    let temp = write_basic_snapshot("occupied-land");
+    let backup_dir = temp.path().join("backup_20240101_120000");
+    let (tmux, pane_contents) = support::single_window_tmux(
+        "backup_20240101_120000",
+        "work",
+        "2024-01-01 12:00:00",
+        &["/tmp/work"],
+    );
+    let error = storage::write_snapshot_dir(&backup_dir, &tmux, &pane_contents)
+        .expect_err("occupied dest must not be replaced");
+    assert_eq!(error.category(), Category::Snapshot);
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::SnapshotIo { .. })
+    ));
+    assert!(
+        backup_dir.join("summary.json").is_file(),
+        "published snapshot must remain"
+    );
+}
+
+#[test]
+fn unpublished_failure_does_not_leave_staging() {
+    let temp = TempDir::new("unpublished-cleanup");
+    let mut tmux = Tmux::new("backup_20240101_120000");
+    tmux.create_time = "2024-01-01 12:00:00".to_string();
+    let mut session = Session::new("work");
+    let mut window = Window::new("work", 1);
+    window.panes.push(Pane::new("work", 1, 0));
+    session.windows.push(window);
+    tmux.sessions.push(session);
+
+    let error = storage::write_snapshot_dir(
+        temp.path().join("backup_20240101_120000").as_path(),
+        &tmux,
+        &BTreeMap::new(),
+    )
+    .expect_err("missing pane bytes should fail before land");
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::MissingPaneBytes { .. })
+    ));
+
+    let leftover = fs::read_dir(temp.path())
+        .expect("parent should remain")
+        .filter_map(|entry| entry.ok())
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".backup_20240101_120000.tmp-")
+        });
+    assert!(
+        !leftover,
+        "owned staging must be discarded on unpublished failure"
+    );
 }
 
 #[test]
@@ -81,8 +148,8 @@ fn read_rejects_summary_manifest_hash_mismatch() {
 
     let error = storage::read_snapshot_dir(&backup_dir).expect_err("hash mismatch should fail");
     assert!(matches!(
-        error,
-        SnapshotError::SummaryManifestMismatch { .. }
+        error.code(),
+        Code::Snapshot(Snapshot::SummaryManifestMismatch { .. })
     ));
 }
 
@@ -116,7 +183,10 @@ fn read_rejects_relative_path_escape() {
     .expect("summary rewrite should succeed");
 
     let error = storage::read_snapshot_dir(&backup_dir).expect_err("path escape should fail");
-    assert!(matches!(error, SnapshotError::InvalidRelativePath { .. }));
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::InvalidRelativePath { .. })
+    ));
 }
 
 #[test]
@@ -137,7 +207,10 @@ fn summary_reader_rejects_unsupported_major_version() {
 
     let error = storage::read_snapshot_summary_dir(&backup_dir)
         .expect_err("unsupported major version should fail");
-    assert!(matches!(error, SnapshotError::UnsupportedVersion { .. }));
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::UnsupportedVersion { .. })
+    ));
 }
 
 #[test]
@@ -170,7 +243,10 @@ fn read_rejects_manifest_with_missing_pane_table_entry() {
 
     let error =
         storage::read_snapshot_dir(&backup_dir).expect_err("missing pane table entry should fail");
-    assert!(matches!(error, SnapshotError::InvalidManifest { .. }));
+    assert!(matches!(
+        error.code(),
+        Code::Snapshot(Snapshot::InvalidManifest { .. })
+    ));
 }
 
 #[test]

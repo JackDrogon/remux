@@ -368,7 +368,6 @@ impl InteractiveEnv {
         config.set_execution_options(ExecutionOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
-        fs::create_dir_all(&backup_dir).expect("backup directory should be created");
 
         let (tmux, pane_contents) =
             support::single_window_tmux(backup_id, session_name, create_time, pane_paths);
@@ -384,7 +383,6 @@ impl InteractiveEnv {
         config.set_execution_options(ExecutionOptions::with_socket_name(socket_name));
 
         let backup_dir = config.active_backup_path().join(backup_id);
-        fs::create_dir_all(&backup_dir).expect("restore backup directory should be created");
 
         let mut tmux = Tmux::new(backup_id);
         tmux.create_time = "2024-01-01 12:00:00".to_string();
@@ -512,6 +510,7 @@ case "$command_name" in
     if [[ "$server" == "1" ]]; then
       exit 0
     fi
+    print -r -- 'no server running on fake' >&2
     exit 1
     ;;
   has-session)

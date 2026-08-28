@@ -298,7 +298,6 @@ fn write_backup(
     config.set_execution_options(ExecutionOptions::with_socket_name(socket_name));
 
     let backup_dir = config.active_backup_path().join(backup_id);
-    fs::create_dir_all(&backup_dir).expect("backup directory should be created");
 
     let (tmux, pane_contents) =
         support::single_window_tmux(backup_id, session_name, create_time, pane_paths);

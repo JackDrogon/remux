@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::model::{PaneTarget, WindowTarget};
+
 pub const TMUX_BINARY: &str = "tmux";
 pub const OUTPUT_SEPARATOR: &str = ":=:";
 pub const LIST_SESSIONS_FORMAT: &str =
@@ -244,11 +246,11 @@ impl TmuxCommand {
 }
 
 pub(crate) fn window_target(session_name: &str, window_id: usize) -> String {
-    format!("{session_name}:{window_id}")
+    WindowTarget::from_parts(session_name, window_id).into_string()
 }
 
 pub(crate) fn pane_target(session_name: &str, window_id: usize, pane_id: usize) -> String {
-    format!("{session_name}:{window_id}.{pane_id}")
+    PaneTarget::from_parts(session_name, window_id, pane_id).into_string()
 }
 
 pub(crate) fn pane_path_keys(path: &Path) -> String {

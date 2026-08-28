@@ -1,6 +1,8 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
-use super::ConfigError;
+use crate::error::{Config as ConfigError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -12,7 +14,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<()> {
         validate_tmux_binary(&self.tmux.binary)?;
 
         validate_backup_dir_name("dir_name", &self.backup.dir_name)?;
@@ -127,20 +129,30 @@ impl Default for BackupConfig {
     }
 }
 
-fn validate_tmux_binary(binary: &str) -> Result<(), ConfigError> {
+fn validate_tmux_binary(binary: &str) -> Result<()> {
     if binary.trim().is_empty() {
-        return Err(ConfigError::InvalidTmuxBinary);
+        return Err(ConfigError::InvalidTmuxBinary.into());
     }
 
     Ok(())
 }
 
-fn validate_backup_dir_name(field: &'static str, value: &str) -> Result<(), ConfigError> {
-    if value.trim().is_empty() {
+fn validate_backup_dir_name(field: &'static str, value: &str) -> Result<()> {
+    let normalized = value.trim();
+    // Same single-component rule as backup IDs: these names are joined under
+    // ~/.remux, so absolute paths, `..`, and separators would escape isolation.
+    if normalized.is_empty()
+        || normalized == ".."
+        || normalized.starts_with('\\')
+        || Path::new(normalized).is_absolute()
+        || normalized.contains('/')
+        || normalized.contains('\\')
+    {
         return Err(ConfigError::InvalidBackupDirName {
             field,
             value: value.to_string(),
-        });
+        }
+        .into());
     }
 
     Ok(())

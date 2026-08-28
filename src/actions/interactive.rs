@@ -1,46 +1,13 @@
-use std::io::{self, BufRead, Write};
-
-use thiserror::Error;
+use std::io::{BufRead, Write};
 
 use crate::actions::restore;
-use crate::cli::{catalog_render, ui};
+use crate::cli::catalog_render;
+use crate::cli::ui::{self, InteractiveMode};
 use crate::config::AppState;
+use crate::error::{Interactive as InteractiveError, Result};
 use crate::storage;
 
-#[derive(Debug, Error)]
-pub enum InteractiveError {
-    #[error("interactive I/O failed: {0}")]
-    Io(#[from] io::Error),
-    #[error("end of input while reading {context}")]
-    EndOfInput { context: &'static str },
-    #[error(transparent)]
-    Catalog(#[from] storage::CatalogError),
-    #[error(transparent)]
-    Restore(#[from] restore::RestoreError),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FlowMode {
-    Inspect,
-    Delete,
-    Restore,
-}
-
-impl FlowMode {
-    fn ui_mode(self) -> ui::InteractiveMode {
-        match self {
-            Self::Inspect => ui::InteractiveMode::Inspect,
-            Self::Delete => ui::InteractiveMode::Delete,
-            Self::Restore => ui::InteractiveMode::Restore,
-        }
-    }
-}
-
-pub fn interactive_list<R, W>(
-    config: &AppState,
-    input: &mut R,
-    output: &mut W,
-) -> Result<(), InteractiveError>
+pub fn interactive_list<R, W>(config: &AppState, input: &mut R, output: &mut W) -> Result<()>
 where
     R: BufRead,
     W: Write,
@@ -52,9 +19,10 @@ where
             return Ok(());
         }
 
-        render_interactive_header(output, FlowMode::Inspect, backups.len())?;
+        render_interactive_header(output, InteractiveMode::Inspect, backups.len())?;
         render_backup_summary(output, &backups)?;
-        let Some(index) = prompt_for_backup_index(input, output, backups.len(), FlowMode::Inspect)?
+        let Some(index) =
+            prompt_for_backup_index(input, output, backups.len(), InteractiveMode::Inspect)?
         else {
             return Ok(());
         };
@@ -65,36 +33,28 @@ where
     }
 }
 
-pub fn interactive_delete<R, W>(
-    config: &AppState,
-    input: &mut R,
-    output: &mut W,
-) -> Result<(), InteractiveError>
+pub fn interactive_delete<R, W>(config: &AppState, input: &mut R, output: &mut W) -> Result<()>
 where
     R: BufRead,
     W: Write,
 {
-    run_flow(config, input, output, FlowMode::Delete)
+    run_flow(config, input, output, InteractiveMode::Delete)
 }
 
-pub fn interactive_restore<R, W>(
-    config: &AppState,
-    input: &mut R,
-    output: &mut W,
-) -> Result<(), InteractiveError>
+pub fn interactive_restore<R, W>(config: &AppState, input: &mut R, output: &mut W) -> Result<()>
 where
     R: BufRead,
     W: Write,
 {
-    run_flow(config, input, output, FlowMode::Restore)
+    run_flow(config, input, output, InteractiveMode::Restore)
 }
 
 fn run_flow<R, W>(
     config: &AppState,
     input: &mut R,
     output: &mut W,
-    mode: FlowMode,
-) -> Result<(), InteractiveError>
+    mode: InteractiveMode,
+) -> Result<()>
 where
     R: BufRead,
     W: Write,
@@ -117,12 +77,12 @@ where
         render_backup_detail(output, &detail)?;
 
         match mode {
-            FlowMode::Inspect => continue,
-            FlowMode::Delete => {
+            InteractiveMode::Inspect => continue,
+            InteractiveMode::Delete => {
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &ui::confirmation_prompt(mode.ui_mode(), &selected_backup),
+                    &ui::confirmation_prompt(mode, &selected_backup),
                 )? {
                     continue;
                 }
@@ -130,11 +90,11 @@ where
                 delete_backup(config, &selected_backup)?;
                 write_line(output, &format!("Backup {selected_backup} was deleted"))?;
             }
-            FlowMode::Restore => {
+            InteractiveMode::Restore => {
                 if !prompt_for_confirmation(
                     input,
                     output,
-                    &ui::confirmation_prompt(mode.ui_mode(), &selected_backup),
+                    &ui::confirmation_prompt(mode, &selected_backup),
                 )? {
                     continue;
                 }
@@ -151,22 +111,25 @@ fn prompt_for_backup_index<R, W>(
     input: &mut R,
     output: &mut W,
     backup_count: usize,
-    mode: FlowMode,
-) -> Result<Option<usize>, InteractiveError>
+    mode: InteractiveMode,
+) -> Result<Option<usize>>
 where
     R: BufRead,
     W: Write,
 {
     loop {
-        let prompt_text = ui::selection_prompt(mode.ui_mode());
+        let prompt_text = ui::selection_prompt(mode);
         prompt(output, &prompt_text)?;
 
         let Some(line) = read_line(input)? else {
             return match mode {
-                FlowMode::Inspect => Ok(None),
-                FlowMode::Delete | FlowMode::Restore => Err(InteractiveError::EndOfInput {
-                    context: "backup selection",
-                }),
+                InteractiveMode::Inspect => Ok(None),
+                InteractiveMode::Delete | InteractiveMode::Restore => {
+                    Err(InteractiveError::EndOfInput {
+                        context: "backup selection",
+                    }
+                    .into())
+                }
             };
         };
         let trimmed = line.trim();
@@ -200,11 +163,7 @@ where
     }
 }
 
-fn prompt_for_confirmation<R, W>(
-    input: &mut R,
-    output: &mut W,
-    prompt_text: &str,
-) -> Result<bool, InteractiveError>
+fn prompt_for_confirmation<R, W>(input: &mut R, output: &mut W, prompt_text: &str) -> Result<bool>
 where
     R: BufRead,
     W: Write,
@@ -215,7 +174,8 @@ where
         let Some(line) = read_line(input)? else {
             return Err(InteractiveError::EndOfInput {
                 context: "confirmation",
-            });
+            }
+            .into());
         };
         let trimmed = line.trim();
 
@@ -235,12 +195,14 @@ where
     }
 }
 
-fn read_line<R>(input: &mut R) -> Result<Option<String>, InteractiveError>
+fn read_line<R>(input: &mut R) -> Result<Option<String>>
 where
     R: BufRead,
 {
     let mut line = String::new();
-    let bytes_read = input.read_line(&mut line)?;
+    let bytes_read = input
+        .read_line(&mut line)
+        .map_err(InteractiveError::InteractiveIo)?;
     if bytes_read == 0 {
         return Ok(None);
     }
@@ -248,49 +210,37 @@ where
     Ok(Some(line))
 }
 
-fn load_listing_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, InteractiveError> {
-    storage::list_backups_for_listing(config).map_err(Into::into)
+fn load_listing_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>> {
+    storage::list_backups_for_listing(config)
 }
 
-fn load_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>, InteractiveError> {
-    storage::list_backups(config).map_err(Into::into)
+fn load_backups(config: &AppState) -> Result<Vec<storage::BackupEntry>> {
+    storage::list_backups(config)
 }
 
-fn load_backup_detail(
-    config: &AppState,
-    backup_id: &str,
-) -> Result<storage::BackupEntry, InteractiveError> {
-    storage::load_backup(config, backup_id).map_err(Into::into)
+fn load_backup_detail(config: &AppState, backup_id: &str) -> Result<storage::BackupEntry> {
+    storage::load_backup(config, backup_id)
 }
 
-fn delete_backup(config: &AppState, backup_id: &str) -> Result<(), InteractiveError> {
-    storage::delete_backup(config, backup_id).map_err(Into::into)
+fn delete_backup(config: &AppState, backup_id: &str) -> Result<()> {
+    storage::delete_backup(config, backup_id)
 }
 
-fn render_backup_summary<W>(
-    output: &mut W,
-    backups: &[storage::BackupEntry],
-) -> Result<(), InteractiveError>
+fn render_backup_summary<W>(output: &mut W, backups: &[storage::BackupEntry]) -> Result<()>
 where
     W: Write,
 {
     write_line(output, &catalog_render::render_summary(backups))
 }
 
-fn render_backup_detail<W>(
-    output: &mut W,
-    detail: &storage::BackupEntry,
-) -> Result<(), InteractiveError>
+fn render_backup_detail<W>(output: &mut W, detail: &storage::BackupEntry) -> Result<()>
 where
     W: Write,
 {
     write_line(output, &catalog_render::render_detail(detail))
 }
 
-fn render_interactive_backup_detail<W>(
-    output: &mut W,
-    detail: &storage::BackupEntry,
-) -> Result<(), InteractiveError>
+fn render_interactive_backup_detail<W>(output: &mut W, detail: &storage::BackupEntry) -> Result<()>
 where
     W: Write,
 {
@@ -299,40 +249,64 @@ where
 
 fn render_interactive_header<W>(
     output: &mut W,
-    mode: FlowMode,
+    mode: InteractiveMode,
     backup_count: usize,
-) -> Result<(), InteractiveError>
+) -> Result<()>
 where
     W: Write,
 {
-    write_line(
-        output,
-        &ui::interactive_header(mode.ui_mode(), backup_count),
-    )
+    write_line(output, &ui::interactive_header(mode, backup_count))
 }
 
-fn show_no_backups<W>(output: &mut W) -> Result<(), InteractiveError>
+fn show_no_backups<W>(output: &mut W) -> Result<()>
 where
     W: Write,
 {
     write_line(output, catalog_render::no_backups_message())?;
-    output.flush()?;
+    output.flush().map_err(InteractiveError::InteractiveIo)?;
     Ok(())
 }
 
-fn write_line<W>(output: &mut W, message: &str) -> Result<(), InteractiveError>
+fn write_line<W>(output: &mut W, message: &str) -> Result<()>
 where
     W: Write,
 {
-    writeln!(output, "{message}")?;
+    // Interactive flow: BrokenPipe is still InteractiveIo, not CLI success.
+    writeln!(output, "{message}").map_err(InteractiveError::InteractiveIo)?;
     Ok(())
 }
 
-fn prompt<W>(output: &mut W, message: &str) -> Result<(), InteractiveError>
+fn prompt<W>(output: &mut W, message: &str) -> Result<()>
 where
     W: Write,
 {
-    write!(output, "{message}")?;
-    output.flush()?;
+    write!(output, "{message}").map_err(InteractiveError::InteractiveIo)?;
+    output.flush().map_err(InteractiveError::InteractiveIo)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod io_contract_tests {
+    use super::*;
+    use crate::{Category, Code};
+    use std::io::Cursor;
+
+    #[test]
+    fn read_line_eof_is_none_not_interactive_io() {
+        let mut input = Cursor::new(Vec::<u8>::new());
+        let line = read_line(&mut input).expect("EOF is not an I/O error");
+        assert_eq!(line, None);
+    }
+
+    #[test]
+    fn write_line_broken_pipe_is_interactive_io() {
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().expect("pipe");
+        drop(reader);
+        let err = write_line(&mut writer, "hello").expect_err("BrokenPipe stays Interactive");
+        assert_eq!(err.category(), Category::Interactive);
+        assert!(matches!(
+            err.code(),
+            Code::Interactive(InteractiveError::InteractiveIo(_))
+        ));
+    }
 }

@@ -1,8 +1,8 @@
 fn main() {
-    color_eyre::install().expect("color_eyre installation should succeed");
-
     if let Err(error) = remux::run(std::env::args()) {
-        eprintln!("{}", remux::cli::render_error(&error));
+        use std::io::Write;
+        let mut stderr = std::io::stderr();
+        let _ = writeln!(stderr, "{}", remux::cli::render_error(&error));
         std::process::exit(1);
     }
 }

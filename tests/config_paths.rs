@@ -175,6 +175,31 @@ fn empty_tmux_binary_is_rejected() {
 }
 
 #[test]
+fn backup_dir_names_must_stay_inside_remux_home() {
+    let cases = ["../escape", "/tmp/outside", "nested/dir", ".."];
+    for dir_name in cases {
+        let temp_home = TempHome::new("escape-backup-dir");
+        let paths = ConfigPaths::from_home(temp_home.path());
+        fs::create_dir_all(&paths.user_path)
+            .expect("should create ~/.remux for backup dir isolation test");
+        fs::write(
+            &paths.config_file,
+            format!(
+                "[logging]\nfile = \"info\"\nconsole = \"off\"\n\n[capture]\nwith_escape = true\n\n[tmux]\nbinary = \"tmux\"\n\n[backup]\ndir_name = {dir_name:?}\nsocket_dir_name = \"backup-sockets\"\n"
+            ),
+        )
+        .expect("should write escaping backup dir config");
+
+        let error = AppState::load_from_paths(paths).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("backup.dir_name must be a single path component"),
+            "unsafe backup dir {dir_name:?} should be rejected, got: {message}"
+        );
+    }
+}
+
+#[test]
 fn default_app_config_exposes_readable_sections() {
     let config = AppConfig::default();
 

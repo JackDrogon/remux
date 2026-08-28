@@ -27,6 +27,7 @@ impl TmuxRuntimeOptions {
     }
 
     pub fn build_adapter(self) -> TmuxAdapter {
+        // CLI adapters inherit unbounded wait from `SubprocessRunner`.
         TmuxAdapter::from_prefix(
             tmux_command_prefix(&self.binary, self.socket_name.as_deref()),
             self.content_with_escape,

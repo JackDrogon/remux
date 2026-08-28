@@ -1,41 +1,17 @@
-use std::io;
-
-use clap::{
-    ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand,
-    error::ErrorKind as ClapErrorKind,
-};
-use thiserror::Error;
+use std::io::{self, Write};
 
 use crate::{
-    BINARY_NAME,
+    BINARY_NAME, Error, Result,
     actions::{backup, compact, interactive, restore},
     config::{AppState, ExecutionOptions},
+    error::Cli as CliError,
     tmux_adapter::verbose_log::{self, VerboseLogLevel},
 };
+use clap::{ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 pub mod catalog_render;
 mod observability;
 pub mod ui;
-
-pub type AppResult<T> = Result<T, AppError>;
-
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error(transparent)]
-    Cli(#[from] CliError),
-    #[error(transparent)]
-    Config(#[from] crate::config::ConfigError),
-    #[error(transparent)]
-    Backup(#[from] backup::BackupError),
-    #[error(transparent)]
-    Restore(#[from] restore::RestoreError),
-    #[error(transparent)]
-    Compact(#[from] compact::CompactError),
-    #[error(transparent)]
-    Catalog(#[from] crate::storage::CatalogError),
-    #[error(transparent)]
-    Interactive(#[from] interactive::InteractiveError),
-}
 
 const CLI_AFTER_HELP: &str = concat!(
     "Examples:\n",
@@ -50,25 +26,35 @@ const CLI_AFTER_HELP: &str = concat!(
     "  config file: $HOME/.remux/config.toml"
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
-    List,
-    Delete,
-    Backup,
-    Restore,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliCommand {
+    List { name: Option<String> },
+    Delete { name: Option<String> },
+    Backup { name: Option<String> },
+    Restore { name: Option<String> },
     InteractiveRestore,
     Compact,
 }
 
-impl Action {
-    fn as_str(self) -> &'static str {
+impl CliCommand {
+    fn action_name(&self) -> &'static str {
         match self {
-            Self::List => "list",
-            Self::Delete => "delete",
-            Self::Backup => "backup",
-            Self::Restore => "restore",
+            Self::List { .. } => "list",
+            Self::Delete { .. } => "delete",
+            Self::Backup { .. } => "backup",
+            Self::Restore { .. } => "restore",
             Self::InteractiveRestore => "interactive-restore",
             Self::Compact => "compact",
+        }
+    }
+
+    fn requested_backup(&self) -> Option<&str> {
+        match self {
+            Self::List { name }
+            | Self::Delete { name }
+            | Self::Backup { name }
+            | Self::Restore { name } => name.as_deref(),
+            Self::InteractiveRestore | Self::Compact => None,
         }
     }
 }
@@ -77,35 +63,7 @@ impl Action {
 pub struct CliArgs {
     pub socket_name: Option<String>,
     pub verbose_log_level: u8,
-    pub action: Action,
-    pub action_arg: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct CliError(clap::Error);
-
-impl CliError {
-    pub fn kind(&self) -> ClapErrorKind {
-        self.0.kind()
-    }
-}
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl std::error::Error for CliError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
-    }
-}
-
-impl From<clap::Error> for CliError {
-    fn from(value: clap::Error) -> Self {
-        Self(value)
-    }
+    pub command: CliCommand,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -174,7 +132,7 @@ enum Commands {
     },
 }
 
-pub fn parse_cli_args<I, S>(argv: I) -> Result<CliArgs, CliError>
+pub fn parse_cli_args<I, S>(argv: I) -> std::result::Result<CliArgs, clap::Error>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
@@ -185,7 +143,12 @@ where
     Ok(cli.into_cli_args())
 }
 
-pub fn run<I, S>(argv: I) -> AppResult<()>
+fn exit_clap(error: clap::Error) -> ! {
+    let _ = error.print();
+    std::process::exit(error.exit_code());
+}
+
+pub fn run<I, S>(argv: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
@@ -194,18 +157,7 @@ where
 
     let parsed = match parse_cli_args(args) {
         Ok(parsed) => parsed,
-        Err(error)
-            if matches!(
-                error.kind(),
-                ClapErrorKind::DisplayHelp
-                    | ClapErrorKind::DisplayVersion
-                    | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-            ) =>
-        {
-            print!("{error}");
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
+        Err(error) => exit_clap(error),
     };
 
     let mut config = AppState::load()?;
@@ -215,44 +167,38 @@ where
         parsed.socket_name.as_deref(),
     ));
 
-    let action = parsed.action;
-    let requested_backup = parsed.action_arg.clone();
-    let result = observability::run_with(
-        &config,
-        action.as_str(),
-        requested_backup.as_deref(),
-        || {
-            tracing::info!(
-                action = action.as_str(),
-                requested_backup = requested_backup.as_deref().unwrap_or("-"),
-                socket_name = config.socket_name().unwrap_or("default"),
-                verbose_log_level = ?verbose_log_level,
-                "dispatching cli action"
-            );
-            let result = dispatch(parsed, &config);
+    let action = parsed.command.action_name();
+    let requested_backup = parsed.command.requested_backup().map(str::to_string);
+    observability::run_with(&config, action, requested_backup.as_deref(), || {
+        tracing::info!(
+            action,
+            requested_backup = requested_backup.as_deref().unwrap_or("-"),
+            socket_name = config.socket_name().unwrap_or("default"),
+            verbose_log_level = ?verbose_log_level,
+            "dispatching cli action"
+        );
+        let result = dispatch(parsed, &config);
 
-            match &result {
-                Ok(()) => tracing::info!(action = action.as_str(), "cli action completed"),
-                Err(error) => tracing::error!(
-                    action = action.as_str(),
-                    error = %error,
-                    debug_error = ?error,
-                    "cli action failed"
-                ),
-            }
+        match &result {
+            Ok(()) => tracing::info!(action, "cli action completed"),
+            // Tracing is the operational log (file, and console only when the
+            // user enabled `[logging]`). `render_error` in `main` is the single
+            // user-facing terminal report. These are different channels, not a
+            // second walk of the error chain.
+            Err(error) => tracing::error!(
+                action,
+                error = %error,
+                debug_error = ?error,
+                "cli action failed"
+            ),
+        }
 
-            result
-        },
-    );
-
-    result
+        result
+    })
 }
 
-pub fn render_error(error: &AppError) -> String {
-    match error {
-        AppError::Cli(error) => error.to_string().trim_end().to_string(),
-        _ => error.to_string(),
-    }
+pub fn render_error(error: &Error) -> String {
+    error.to_string()
 }
 
 pub fn usage_text() -> String {
@@ -261,26 +207,25 @@ pub fn usage_text() -> String {
 
 impl Cli {
     fn into_cli_args(self) -> CliArgs {
-        let (action, action_arg) = match self.command {
-            Commands::Backup { name } => (Action::Backup, name),
-            Commands::List { name } => (Action::List, name),
-            Commands::Delete { name } => (Action::Delete, name),
+        let command = match self.command {
+            Commands::Backup { name } => CliCommand::Backup { name },
+            Commands::List { name } => CliCommand::List { name },
+            Commands::Delete { name } => CliCommand::Delete { name },
             Commands::Restore {
                 name: _,
                 interactive: true,
-            } => (Action::InteractiveRestore, None),
+            } => CliCommand::InteractiveRestore,
             Commands::Restore {
                 name,
                 interactive: false,
-            } => (Action::Restore, name),
-            Commands::Compact => (Action::Compact, None),
+            } => CliCommand::Restore { name },
+            Commands::Compact => CliCommand::Compact,
         };
 
         CliArgs {
             socket_name: self.socket_name,
             verbose_log_level: self.verbose_log_level,
-            action,
-            action_arg,
+            command,
         }
     }
 }
@@ -296,52 +241,49 @@ fn build_cli() -> clap::Command {
         .subcommand_help_heading("Commands")
 }
 
-fn dispatch(args: CliArgs, config: &AppState) -> AppResult<()> {
-    match args.action {
-        Action::List => handle_list(config, args.action_arg.as_deref()),
-        Action::Delete => match args.action_arg.as_deref() {
+fn dispatch(args: CliArgs, config: &AppState) -> Result<()> {
+    match args.command {
+        CliCommand::List { name } => handle_list(config, name.as_deref()),
+        CliCommand::Delete { name } => match name.as_deref() {
             Some(backup_name) => do_delete(config, backup_name),
             None => interactive_delete(config),
         },
-        Action::Backup => do_backup(config, args.action_arg.as_deref()),
-        Action::Restore => do_restore(config, args.action_arg.as_deref()),
-        Action::InteractiveRestore => interactive_restore(config),
-        Action::Compact => do_compact(config),
+        CliCommand::Backup { name } => do_backup(config, name.as_deref()),
+        CliCommand::Restore { name } => do_restore(config, name.as_deref()),
+        CliCommand::InteractiveRestore => interactive_restore(config),
+        CliCommand::Compact => do_compact(config),
     }
 }
 
-fn handle_list(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
+fn handle_list(config: &AppState, action_arg: Option<&str>) -> Result<()> {
     match action_arg {
         Some(backup_name) => {
             let entry = crate::storage::load_backup(config, backup_name)?;
-            println!("{}", catalog_render::render_detail(&entry));
-            Ok(())
+            emit_line(catalog_render::render_detail(&entry))
         }
         None => interactive_list(config),
     }
 }
 
-fn do_delete(config: &AppState, backup_name: &str) -> AppResult<()> {
+fn do_delete(config: &AppState, backup_name: &str) -> Result<()> {
     crate::storage::delete_backup(config, backup_name)?;
-    println!("Backup {backup_name} was deleted");
-    Ok(())
+    emit_line(format!("Backup {backup_name} was deleted"))
 }
 
-fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
+fn do_backup(config: &AppState, action_arg: Option<&str>) -> Result<()> {
     if action_arg.is_none() && config.socket_name().is_none() {
         return do_backup_all_sockets(config);
     }
 
     match backup::capture_backup(config, action_arg) {
-        Ok(backup::BackupOutcome::Created { path, .. }) => {
-            println!("Backup of sessions was saved under {}", path.display());
-            Ok(())
-        }
+        Ok(backup::BackupOutcome::Created { path, .. }) => emit_line(format!(
+            "Backup of sessions was saved under {}",
+            path.display()
+        )),
         Ok(backup::BackupOutcome::NoServer) => {
-            println!("No tmux session found, nothing to backup");
-            Ok(())
+            emit_line("No tmux session found, nothing to backup")
         }
-        Err(error) => Err(error.into()),
+        Err(error) => Err(error),
     }
 }
 
@@ -350,7 +292,7 @@ fn do_backup(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
 /// Later sockets can fail after earlier ones have written snapshots. Those
 /// successes must stay visible on stdout so a nonzero exit is not mistaken for
 /// "nothing was saved".
-fn do_backup_all_sockets(config: &AppState) -> AppResult<()> {
+fn do_backup_all_sockets(config: &AppState) -> Result<()> {
     let results = backup::capture_all_socket_backups(config)?;
     let mut created_backup_count = 0usize;
     let mut first_socket_backup_error = None;
@@ -360,106 +302,149 @@ fn do_backup_all_sockets(config: &AppState) -> AppResult<()> {
             result,
             &mut created_backup_count,
             &mut first_socket_backup_error,
-        );
+        )?;
     }
 
     if created_backup_count == 0 && first_socket_backup_error.is_none() {
-        println!("No tmux session found, nothing to backup");
+        emit_line("No tmux session found, nothing to backup")?;
     }
 
-    first_socket_backup_error.map_or(Ok(()), |error| Err(error.into()))
+    first_socket_backup_error.map_or(Ok(()), Err)
 }
 
 fn record_socket_backup_result(
     result: backup::SocketBackupResult,
     created_backup_count: &mut usize,
-    first_socket_backup_error: &mut Option<backup::BackupError>,
-) {
+    first_socket_backup_error: &mut Option<Error>,
+) -> Result<()> {
     match result {
         backup::SocketBackupResult::Completed(outcome) => {
-            if print_completed_socket_backup(&outcome) {
+            if print_completed_socket_backup(&outcome)? {
                 *created_backup_count += 1;
             }
         }
         backup::SocketBackupResult::Failed { error, .. } => {
-            first_socket_backup_error.get_or_insert(error);
+            if first_socket_backup_error.is_none() {
+                *first_socket_backup_error = Some(error);
+            }
         }
     }
+    Ok(())
 }
 
 /// Returns whether this socket produced a new backup directory.
-fn print_completed_socket_backup(outcome: &backup::SocketBackupOutcome) -> bool {
+fn print_completed_socket_backup(outcome: &backup::SocketBackupOutcome) -> Result<bool> {
     match &outcome.outcome {
         backup::BackupOutcome::Created { path, .. } => {
-            println!(
+            emit_line(format!(
                 "Backup of sessions for socket {} was saved under {}",
                 outcome.socket_name,
                 path.display()
-            );
-            true
+            ))?;
+            Ok(true)
         }
         backup::BackupOutcome::NoServer => {
-            println!(
+            emit_line(format!(
                 "No tmux session found for socket {}, nothing to backup",
                 outcome.socket_name
-            );
-            false
+            ))?;
+            Ok(false)
         }
     }
 }
 
-fn do_compact(config: &AppState) -> AppResult<()> {
+fn do_compact(config: &AppState) -> Result<()> {
     match compact::compact_latest_pair(config)? {
         compact::CompactOutcome::NeedMoreBackups => {
-            println!("Need at least two backups to compact");
+            emit_line("Need at least two backups to compact")?;
         }
         compact::CompactOutcome::NamedPrevious { name } => {
-            println!("Previous backup {name} is not an automatic backup");
+            emit_line(format!("Previous backup {name} is not an automatic backup"))?;
         }
         compact::CompactOutcome::Different { kept, previous } => {
-            println!("Latest backups {kept} and {previous} differ, nothing to compact");
+            emit_line(format!(
+                "Latest backups {kept} and {previous} differ, nothing to compact"
+            ))?;
         }
         compact::CompactOutcome::Removed { deleted, kept } => {
-            println!("Removed duplicate backup {deleted} (same as {kept})");
+            emit_line(format!(
+                "Removed duplicate backup {deleted} (same as {kept})"
+            ))?;
         }
     }
     Ok(())
 }
 
-fn do_restore(config: &AppState, action_arg: Option<&str>) -> AppResult<()> {
+fn do_restore(config: &AppState, action_arg: Option<&str>) -> Result<()> {
     restore::restore_from_config(config, action_arg)?;
     match action_arg {
-        Some(backup_name) => println!("Backup {backup_name} was restored"),
-        None => println!("Latest backup was restored"),
+        Some(backup_name) => emit_line(format!("Backup {backup_name} was restored")),
+        None => emit_line("Latest backup was restored"),
     }
-    Ok(())
 }
 
-fn interactive_list(config: &AppState) -> AppResult<()> {
+fn interactive_list(config: &AppState) -> Result<()> {
     with_stdio_locks(|input, output| interactive::interactive_list(config, input, output))
-        .map_err(Into::into)
 }
 
-fn interactive_delete(config: &AppState) -> AppResult<()> {
+fn interactive_delete(config: &AppState) -> Result<()> {
     with_stdio_locks(|input, output| interactive::interactive_delete(config, input, output))
-        .map_err(Into::into)
 }
 
-fn interactive_restore(config: &AppState) -> AppResult<()> {
+fn interactive_restore(config: &AppState) -> Result<()> {
     with_stdio_locks(|input, output| interactive::interactive_restore(config, input, output))
-        .map_err(Into::into)
 }
 
-fn with_stdio_locks<F>(run: F) -> Result<(), interactive::InteractiveError>
+fn with_stdio_locks<F>(run: F) -> Result<()>
 where
-    F: FnOnce(
-        &mut io::StdinLock<'_>,
-        &mut io::StdoutLock<'_>,
-    ) -> Result<(), interactive::InteractiveError>,
+    F: FnOnce(&mut io::StdinLock<'_>, &mut io::StdoutLock<'_>) -> Result<()>,
 {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();
     let mut output = stdout.lock();
     run(&mut input, &mut output)
+}
+
+fn emit_line(text: impl std::fmt::Display) -> Result<()> {
+    write_stdout(text, true)
+}
+
+/// Non-interactive CLI reports. BrokenPipe means the peer is gone: success.
+fn write_stdout(text: impl std::fmt::Display, newline: bool) -> Result<()> {
+    let mut stdout = io::stdout();
+    let written = if newline {
+        writeln!(stdout, "{text}")
+    } else {
+        write!(stdout, "{text}")
+    };
+    map_noninteractive_stdout(written)
+}
+
+fn map_noninteractive_stdout(written: io::Result<()>) -> Result<()> {
+    match written {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(CliError::Stdout(error).into()),
+    }
+}
+
+#[cfg(test)]
+mod stdout_contract_tests {
+    use super::*;
+    use crate::{Category, Code};
+
+    #[test]
+    fn broken_pipe_is_success() {
+        let error = io::Error::new(io::ErrorKind::BrokenPipe, "peer gone");
+        map_noninteractive_stdout(Err(error)).expect("BrokenPipe is success for CLI reports");
+    }
+
+    #[test]
+    fn other_write_failures_are_cli_stdout() {
+        let error = io::Error::other("disk full");
+        let err = map_noninteractive_stdout(Err(error)).expect_err("other writes fail");
+        assert_eq!(err.category(), Category::Cli);
+        assert!(matches!(err.code(), Code::Cli(CliError::Stdout(_))));
+    }
 }
