@@ -1,4 +1,4 @@
-use crate::model::{Pane, Tmux};
+use crate::model::{Pane, Session, Tmux, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactFingerprint {
@@ -16,7 +16,6 @@ struct SessionPrint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WindowPrint {
     window_id: u32,
-    name: String,
     layout: String,
     panes: Vec<PanePrint>,
 }
@@ -36,27 +35,32 @@ struct RootProcessPrint {
 
 impl CompactFingerprint {
     pub fn from_tmux(tmux: &Tmux, schema_major: u16, schema_minor: u16) -> Self {
+        let mut sessions: Vec<SessionPrint> = tmux.sessions.iter().map(session_print).collect();
+        sessions.sort_by(|left, right| left.name.cmp(&right.name));
         Self {
             schema_major,
             schema_minor,
-            sessions: tmux
-                .sessions
-                .iter()
-                .map(|session| SessionPrint {
-                    name: session.name.clone(),
-                    windows: session
-                        .windows
-                        .iter()
-                        .map(|window| WindowPrint {
-                            window_id: window.window_id,
-                            name: window.name.clone(),
-                            layout: window.layout.clone(),
-                            panes: window.panes.iter().map(pane_print).collect(),
-                        })
-                        .collect(),
-                })
-                .collect(),
+            sessions,
         }
+    }
+}
+
+fn session_print(session: &Session) -> SessionPrint {
+    let mut windows: Vec<WindowPrint> = session.windows.iter().map(window_print).collect();
+    windows.sort_by_key(|window| window.window_id);
+    SessionPrint {
+        name: session.name.clone(),
+        windows,
+    }
+}
+
+fn window_print(window: &Window) -> WindowPrint {
+    let mut panes: Vec<PanePrint> = window.panes.iter().map(pane_print).collect();
+    panes.sort_by_key(|pane| pane.pane_id);
+    WindowPrint {
+        window_id: window.window_id,
+        layout: window.layout.clone(),
+        panes,
     }
 }
 
@@ -147,13 +151,6 @@ mod tests {
             CompactFingerprint::from_tmux(&window_id, 1, 1)
         );
 
-        let mut window_name = base.clone();
-        window_name.sessions[0].windows[0].name = "shell".to_string();
-        assert_ne!(
-            CompactFingerprint::from_tmux(&base, 1, 1),
-            CompactFingerprint::from_tmux(&window_name, 1, 1)
-        );
-
         let mut pane_id = base.clone();
         pane_id.sessions[0].windows[0].panes[0].pane_id = 1;
         assert_ne!(
@@ -188,6 +185,8 @@ mod tests {
         right.create_time = "2024-01-01 12:10:00".to_string();
         left.sessions[0].attached = false;
         right.sessions[0].attached = true;
+        left.sessions[0].windows[0].name = "zsh".to_string();
+        right.sessions[0].windows[0].name = "tig".to_string();
         left.sessions[0].windows[0].active = true;
         right.sessions[0].windows[0].active = false;
         left.sessions[0].windows[0].panes[0].active = true;
@@ -214,6 +213,60 @@ mod tests {
 
         left.sessions[0].windows[0].layout = "other-layout".to_string();
         assert_ne!(
+            CompactFingerprint::from_tmux(&left, 1, 1),
+            CompactFingerprint::from_tmux(&right, 1, 1)
+        );
+    }
+
+    fn window_with_panes(session: &str, window_id: u32, layout: &str, pane_ids: &[u32]) -> Window {
+        let mut window = Window::new(session, window_id);
+        window.layout = layout.to_string();
+        window.panes = pane_ids
+            .iter()
+            .map(|&pane_id| Pane::new(session, window_id, pane_id))
+            .collect();
+        window
+    }
+
+    fn session_with_windows(name: &str, windows: Vec<Window>) -> Session {
+        let mut session = Session::new(name);
+        session.windows = windows;
+        session
+    }
+
+    #[test]
+    fn listing_order_does_not_change_fingerprint() {
+        let mut left = Tmux::new("20240101_120000");
+        left.sessions = vec![
+            session_with_windows(
+                "beta",
+                vec![
+                    window_with_panes("beta", 2, "layout-b2", &[1, 0]),
+                    window_with_panes("beta", 1, "layout-b1", &[0]),
+                ],
+            ),
+            session_with_windows(
+                "alpha",
+                vec![window_with_panes("alpha", 1, "layout-a1", &[0])],
+            ),
+        ];
+
+        let mut right = Tmux::new("20240101_120000");
+        right.sessions = vec![
+            session_with_windows(
+                "alpha",
+                vec![window_with_panes("alpha", 1, "layout-a1", &[0])],
+            ),
+            session_with_windows(
+                "beta",
+                vec![
+                    window_with_panes("beta", 1, "layout-b1", &[0]),
+                    window_with_panes("beta", 2, "layout-b2", &[0, 1]),
+                ],
+            ),
+        ];
+
+        assert_eq!(
             CompactFingerprint::from_tmux(&left, 1, 1),
             CompactFingerprint::from_tmux(&right, 1, 1)
         );

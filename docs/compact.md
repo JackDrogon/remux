@@ -48,11 +48,11 @@ restore 也不会把记录的进程再拉起来。判重问的是：「再留一
 
 ```text
 schema_version.major, schema_version.minor
-+ 按顺序的 sessions[
++ sessions 按 name 排序 [
     name,
-    windows[
-      id, name, layout,
-      panes[
+    windows 按 id 排序 [
+      id, layout,
+      panes 按 id 排序 [
         pane_id,
         command_tree 根: pid + name + argv
         （没有 tree 则根 = 空）
@@ -61,7 +61,7 @@ schema_version.major, schema_version.minor
   ]
 ```
 
-对应实现：`src/storage/compact.rs` 的 `fingerprint()`。
+对应实现：`src/storage/fingerprint.rs` 的 `CompactFingerprint::from_tmux()`。
 
 ### 要比的字段
 
@@ -69,9 +69,9 @@ schema_version.major, schema_version.minor
 
 格式契约。1.0 没有 `command_tree`，1.1 有。拓扑和根 pid 看起来一样时，把最后一份旧格式塌掉，等于丢掉「这是旧契约下拍的」这一事实。major/minor 都比。
 
-**session `name`，window `id` / `name` / `layout`，pane `pane_id`**
+**session `name`，window `id` / `layout`，pane `pane_id`**
 
-这是 restore 真正会重建的东西：有哪些 session、窗口怎么排、分不分屏。`layout` 字符串里已经带终端尺寸（如 `120x40`），resize 会反映在 layout 上，不必再单独比 `size`。
+这是 restore 真正会重建的东西：有哪些 session、窗口怎么排、分不分屏。`layout` 字符串里已经带终端尺寸（如 `120x40`），resize 会反映在 layout 上，不必再单独比 `size`。投影时 sessions 按 `name`、windows/panes 按 id 做稳定排序，`list-sessions` 等捕获顺序不影响相等。argv 不排序。
 
 **根进程 `pid` + `name` + `argv`**
 
@@ -89,6 +89,10 @@ schema_version.major, schema_version.minor
 **`backup_id` / `created_at` / `manifest_sha256`**
 
 身份和时间。放进指纹，compact 永远不会触发。
+
+**window `name`**
+
+没手改过名字时，tmux `automatic-rename` 会把窗口名换成当前前台进程（`zsh` → `tig`）。根还是那颗 zsh，外形没变。手 `rename-window` 也不比：compact 留新，新名字写在留下的那份里。
 
 **pane `path`（cwd）**
 
@@ -126,7 +130,7 @@ scrollback。idle 时几乎每次都变。留下的新备份里仍有最新文�
 
 restore 重建 session / window / layout / pane / cwd / 文本，**不**启动 `command_tree` 里的进程。
 
-所以指纹对齐的是「外形是否还是同一套 tmux」，外加「pane 根还是不是原来那个进程」。它刻意比 restore 少看 cwd 和文本（太吵），又比 restore 多看根 pid（区分「同一扇 pane」和「新开的一扇长得很像的 pane」）。
+所以指纹对齐的是「外形是否还是同一套 tmux」，外加「pane 根还是不是原来那个进程」。它刻意比 restore 少看 cwd、窗口名和文本（太吵），又比 restore 多看根 pid（区分「同一扇 pane」和「新开的一扇长得很像的 pane」）。
 
 ## 命令结果
 
@@ -148,7 +152,7 @@ restore 重建 session / window / layout / pane / cwd / 文本，**不**启动 `
 
 ## 代码入口
 
-- 指纹：`src/storage/compact.rs`
+- 指纹：`src/storage/fingerprint.rs` `CompactFingerprint::from_tmux`
 - 选最新两份并删除：`src/actions/compact.rs`
 - 自动名：`src/backup_name.rs` `is_automatic_backup_id`
 - schema：`storage::read_schema_version`
